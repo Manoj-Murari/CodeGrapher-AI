@@ -4,19 +4,27 @@ venv/
 env/
 
 # Environment variables
-.env
+.env*
 
-# Python cache
+# Python cache & build artifacts
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+build/
+dist/
+*.egg-info/
+*.egg
 
 # Generated data, logs, and indexes
 data/
 workspace/
 logs/
 *.log
+app.log
+
+# Example data - NOT part of the app source code
+target_repo/
 
 # IDE and OS files
 .idea/
