@@ -1,17 +1,10 @@
 # --- engine/rag.py ---
 
 import os
-import sys
 import logging
 import google.generativeai as genai
 # --- ADD THIS IMPORT ---
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
-
-# --- Path Fix ---
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-# --- End Path Fix ---
 
 import chromadb
 from llama_index.core import VectorStoreIndex, Settings

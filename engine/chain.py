@@ -1,15 +1,8 @@
 # --- engine/chain.py ---
 
 import os
-import sys
 import logging
 from typing import Literal
-
-# --- Path Fix ---
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-# --- End Path Fix ---
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
@@ -45,6 +38,7 @@ Respond with a JSON object containing a single key 'route' with a value of eithe
     return _routing_chain
 
 def run_chain(query: str):
+   
     logging.info(f"--- [CLASSIFY] Query: '{query}' ---")
     routing_chain = get_routing_chain()
     routing_decision = routing_chain.invoke({"query": query})

@@ -1,6 +1,5 @@
 # --- app.py ---
 
-import sys
 import os
 import json
 import time
@@ -9,14 +8,10 @@ from flask import Flask, render_template, request, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
 
-# Import and setup our new logger
 from logging_config import setup_logging
 setup_logging()
 
-project_root = os.path.abspath(os.path.dirname(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
+# `import sys` has been removed as it is no longer needed.
 from engine.chain import run_chain
 
 load_dotenv()
@@ -38,11 +33,28 @@ def query():
         return Response(json.dumps({"error": "No question provided"}), status=400, mimetype='application/json')
 
     def stream():
-        for event in run_chain(question):
-            yield f"data: {json.dumps(event)}\n\n"
-            time.sleep(0.01)
+        # --- ADDED: try...except...finally block for robustness ---
+        try:
+            # run_chain is a generator that yields events
+            for event in run_chain(question):
+                yield f"data: {json.dumps(event)}\n\n"
+                time.sleep(0.01)
+        except Exception as e:
+            # Log the full error for debugging
+            logging.error(f"An error occurred during stream generation: {e}", exc_info=True)
+            # Send a user-friendly error event to the frontend
+            error_event = {
+                "type": "error",
+                "content": f"An unexpected error occurred. Please check the server logs for details."
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+        finally:
+            # Ensure the stream is always closed with an 'end' event
+            end_event = {"type": "end", "content": ""}
+            yield f"data: {json.dumps(end_event)}\n\n"
 
-    return Response(stream(), mimetype='text/event-stream')
+
+    return Response(stream(), mimetype='text-stream')
 
 if __name__ == '__main__':
     app.run(debug=True, threaded=True)

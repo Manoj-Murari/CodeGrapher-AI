@@ -21,3 +21,7 @@ def setup_directories():
     os.makedirs(TARGET_REPO_PATH, exist_ok=True)
     os.makedirs(WORKSPACE_PATH, exist_ok=True)
     os.makedirs(VECTOR_STORE_PATH, exist_ok=True)
+
+# --- Environment-Controlled Settings ---
+# Reads the AGENT_VERBOSE variable from .env and converts it to a boolean
+AGENT_VERBOSE = os.environ.get("AGENT_VERBOSE", "False").lower() in ('true', '1', 't')

@@ -6,13 +6,7 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core.node_parser import CodeSplitter
 from llama_index.core import Settings
-import sys
 import os
-
-# Add the project root to the Python path to allow importing 'config'
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
 
 import config
 
