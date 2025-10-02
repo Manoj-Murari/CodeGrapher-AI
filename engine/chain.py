@@ -9,25 +9,27 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
 from langchain.memory import ConversationBufferMemory
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from dotenv import load_dotenv
 
 import config
 from engine.rag import get_query_engine
-from engine.agent import get_agent_executor
+from engine.graph import get_graph 
 
 load_dotenv()
 
+# This single memory object is shared by the router and the agent
 _memory = ConversationBufferMemory(return_messages=True, input_key="input")
 
 class RouteQuery(BaseModel):
     route: Literal["RAG", "AGENT"] = Field(...)
 
-# --- ADD THIS LINE TO INITIALIZE THE VARIABLE ---
+# Cache for the routing chain
 _routing_chain = None
 
 def get_routing_chain():
+    """Builds and returns the routing chain."""
     global _routing_chain
     if _routing_chain is not None:
         return _routing_chain
@@ -38,7 +40,7 @@ def get_routing_chain():
 You are an expert at routing a user's query. Based on the query AND the conversation history, you must decide whether to use a RAG system or a general-purpose Agent.
 
 - Use 'RAG' for general questions about the codebase's content, structure, or purpose.
-- Use 'AGENT' for commands, requests to read/list files, or for questions that refer to the content of the conversation history.
+- Use 'AGENT' for commands, requests to read/list files, for questions that refer to the content of the conversation history, OR for specific questions about code structure like finding "callers" or "callees" of a function.
 
 CONVERSATION HISTORY:
 {chat_history}
@@ -54,6 +56,7 @@ Respond with a JSON object containing a single key 'route' with a value of eithe
     return _routing_chain
 
 def run_chain(query: str):
+    """The main entry point for processing a user query."""
     
     logging.info(f"--- [CLASSIFY] Query: '{query}' ---")
     routing_chain = get_routing_chain()
@@ -68,15 +71,23 @@ def run_chain(query: str):
     logging.info(f"--- [ROUTE] Chosen: {route} ---")
     
     if route == "AGENT":
-        logging.info("--- [AGENT] Invoking Stream... ---")
-        agent_executor = get_agent_executor(memory=_memory)
+        logging.info("--- [AGENT] Invoking Graph... ---")
+        graph = get_graph()
         
-        for chunk in agent_executor.stream({"input": query, "chat_history": chat_history}):
-            if "actions" in chunk:
-                thought = f"🤔 {chunk['messages'][0].content.strip()}"
-                yield {"type": "thought", "content": thought}
-            elif "output" in chunk:
-                yield {"type": "chunk", "content": chunk["output"]}
+        inputs = {"input": query, "chat_history": chat_history}
+        final_state = None
+        for event in graph.stream(inputs):
+            if "agent" in event:
+                outcome = event["agent"].get("agent_outcome")
+                if outcome and hasattr(outcome, 'log'):
+                    thought = f"🤔 {outcome.log.strip()}"
+                    yield {"type": "thought", "content": thought}
+
+            final_state = event
+
+        final_response = final_state["agent"]["agent_outcome"].return_values["output"]
+        _memory.save_context(inputs, {"output": final_response})
+        yield {"type": "chunk", "content": final_response}
 
     elif route == "RAG":
         logging.info("--- [RAG] Invoking Stream... ---")

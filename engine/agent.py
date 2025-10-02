@@ -4,10 +4,7 @@ import os
 import logging
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain import hub
-from langchain.agents import AgentExecutor, create_react_agent
-# REMOVE THIS - We will no longer create memory here
-# from langchain.memory import ConversationBufferMemory 
-from dotenv import load_dotenv
+from langchain.agents import create_react_agent
 
 import config
 from tools.file_system import (
@@ -19,23 +16,11 @@ from tools.file_system import (
 )
 from tools.code_graph import query_code_graph
 
-load_dotenv()
-
-_agent_executor = None
-
-# --- UPDATE THE FUNCTION TO ACCEPT A MEMORY OBJECT ---
-def get_agent_executor(memory):
+def get_agent_and_tools():
     """
-    Initializes and returns a LangChain agent executor.
-    Caches the executor in a global variable.
+    Initializes and returns the LangChain agent runnable and its tools.
     """
-    global _agent_executor
-    if _agent_executor is not None:
-        # A simple way to update memory on the cached executor
-        _agent_executor.memory = memory 
-        return _agent_executor
-
-    logging.info("--- [AGENT] Initializing for the first time... ---")
+    logging.info("--- [AGENT] Initializing Agent and Tools... ---")
 
     llm = ChatGoogleGenerativeAI(
         model=config.AGENT_MODEL_NAME,
@@ -53,16 +38,7 @@ def get_agent_executor(memory):
     ]
     
     prompt = hub.pull("hwchase17/react-chat")
-    agent = create_react_agent(llm, tools, prompt)
-
-    _agent_executor = AgentExecutor(
-        agent=agent,
-        tools=tools,
-        # --- USE THE PASSED-IN MEMORY OBJECT ---
-        memory=memory,
-        verbose=config.AGENT_VERBOSE,
-        handle_parsing_errors=True
-    )
+    agent_runnable = create_react_agent(llm, tools, prompt)
     
-    logging.info("--- [AGENT] Initialized successfully! ---")
-    return _agent_executor
+    logging.info("--- [AGENT] Agent and Tools initialized successfully! ---")
+    return agent_runnable, tools

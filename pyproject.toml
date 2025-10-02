@@ -9,6 +9,25 @@ name = "codegrapher-ai"
 version = "0.1.0"
 description = "An AI agent for code analysis using RAG and agents."
 requires-python = ">=3.9"
+dependencies = [
+    "langchain",
+    "langchain-google-genai",
+    "llama-index",
+    "google-generativeai",
+    "llama-index-embeddings-huggingface",
+    "llama-index-vector-stores-chroma",
+    "llama-index-llms-google-genai",
+    "chromadb",
+    "sentence-transformers",
+    "tree-sitter",
+    "tree-sitter-languages",
+    "tree_sitter_language_pack",
+    "Flask",
+    "Flask-Cors",
+    "python-dotenv",
+    "pydantic",
+    "langgraph"
+]
 
 [project.optional-dependencies]
 test = ["pytest"]
@@ -17,6 +36,5 @@ test = ["pytest"]
 py-modules = ["config", "logging_config"]
 packages = ["engine", "tools"]
 
-# ADD THIS SECTION
 [tool.pytest.ini_options]
 norecursedirs = [".venv", "target_repo"]

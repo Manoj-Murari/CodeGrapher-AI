@@ -1,16 +1,15 @@
 # --- tools/code_graph.py ---
 
 import json
+import ast
 from langchain.tools import tool
-from typing import Literal
+from typing import Union, Dict
 
-# Import our project's configuration
 import config
 
 _code_graph_cache = None
 
 def _get_code_graph():
-    """Loads and caches the code graph from the JSON file."""
     global _code_graph_cache
     if _code_graph_cache is None:
         try:
@@ -20,12 +19,34 @@ def _get_code_graph():
             return {"nodes": [], "edges": []}
     return _code_graph_cache
 
+def parse_tool_input(input_str: Union[str, Dict]) -> Dict:
+    if isinstance(input_str, dict):
+        return input_str
+    try:
+        evaluated = ast.literal_eval(input_str)
+        if isinstance(evaluated, dict):
+            return evaluated
+        return {}
+    except (ValueError, SyntaxError):
+        return {}
+
+
 @tool
-def query_code_graph(entity_name: str, relationship: Literal['callers', 'callees']) -> str:
+def query_code_graph(tool_input: Union[str, Dict]) -> str:
     """
     Queries the code's structure graph to find callers or callees of a function/method.
-    NOTE: This tool depends on a 'code_graph.json' file which is not yet generated.
+    The input must be a dictionary containing 'entity_name' and 'relationship' (either 'callers' or 'callees').
+    Example: {"entity_name": "my_function", "relationship": "callers"}
     """
+    try:
+        parsed_args = parse_tool_input(tool_input)
+        entity_name = parsed_args["entity_name"]
+        relationship = parsed_args["relationship"]
+        if relationship not in ['callers', 'callees']:
+            return "Error: Invalid relationship. Must be 'callers' or 'callees'."
+    except (KeyError, TypeError):
+        return "Error: Input must be a dictionary with 'entity_name' and 'relationship' keys."
+
     graph = _get_code_graph()
     if not graph["nodes"]:
         return "Error: The code_graph.json file is not available or is empty."
@@ -44,7 +65,5 @@ def query_code_graph(entity_name: str, relationship: Literal['callers', 'callees
     elif relationship == 'callees':
         callee_ids = {edge['target'] for edge in graph['edges'] if edge['source'] == target_id}
         results = [node for node in graph['nodes'] if node['id'] in callee_ids]
-    else:
-        return "Error: Invalid relationship. Must be 'callers' or 'callees'."
 
     return json.dumps(results, indent=2)
