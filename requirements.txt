@@ -1,0 +1,27 @@
+# --- Core Frameworks ---
+langchain
+langchain-google-genai
+llama-index
+google-generativeai
+
+# --- LlamaIndex Integrations (FIX) ---
+llama-index-embeddings-huggingface
+llama-index-vector-stores-chroma
+llama-index-llms-google-genai # <-- THE CORRECT PACKAGE
+
+# --- Vector Database & Embeddings ---
+chromadb
+sentence-transformers
+
+# --- Code Parsing (for graph tool and advanced splitting) ---
+tree-sitter
+tree-sitter-languages
+tree_sitter_language_pack
+
+# --- Web Server ---
+Flask
+Flask-Cors
+
+# --- Utilities ---
+python-dotenv
+pydantic
