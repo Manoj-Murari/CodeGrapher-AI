@@ -3,12 +3,13 @@
 import os
 import ast
 import json
+import argparse
 
 import config
 
-def get_relative_path(file_path):
+def get_relative_path(file_path, base_path):
     """Converts an absolute file path to a project-relative path."""
-    return os.path.relpath(file_path, config.TARGET_REPO_PATH).replace("\\", "/")
+    return os.path.relpath(file_path, base_path).replace("\\", "/")
 
 # --- Pass 1: Find all definitions (classes, functions, methods) ---
 class DefinitionVisitor(ast.NodeVisitor):
@@ -82,7 +83,6 @@ class CallVisitor(ast.NodeVisitor):
 
         if callee_name:
             # Simple heuristic: find any symbol that ends with the called name.
-            # This is not perfect but works for many cases.
             for key in self.symbol_table:
                 if key.endswith(f"::{callee_name}"):
                     target_id = key
@@ -93,13 +93,21 @@ class CallVisitor(ast.NodeVisitor):
 
 
 def main():
-    print("--- 🚀 Starting Code Graph Construction ---")
+    parser = argparse.ArgumentParser(description="Build a code graph for a codebase.")
+    parser.add_argument("--name", required=True, help="A unique name for the project.")
+    parser.add_argument("--path", required=True, help="The path to the project's source code directory.")
+    args = parser.parse_args()
+
+    project_name = args.name
+    project_path = args.path
+    
+    print(f"--- 🚀 Starting Code Graph Construction for project: {project_name} ---")
     all_nodes = []
     all_edges = []
     symbol_table = {}
     files_to_process = []
 
-    for root, _, files in os.walk(config.TARGET_REPO_PATH):
+    for root, _, files in os.walk(project_path):
         if any(skip in root for skip in [".venv", "__pycache__", ".git"]):
             continue
         for file in files:
@@ -108,7 +116,7 @@ def main():
 
     print(f"\n--- Pass 1: Discovering {len(files_to_process)} files... ---")
     for file_path in files_to_process:
-        relative_path = get_relative_path(file_path)
+        relative_path = get_relative_path(file_path, project_path)
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -121,7 +129,7 @@ def main():
 
     print(f"\n--- Pass 2: Resolving calls... ---")
     for file_path in files_to_process:
-        relative_path = get_relative_path(file_path)
+        relative_path = get_relative_path(file_path, project_path)
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -131,16 +139,16 @@ def main():
         except Exception as e:
             print(f"  - ❌ Error parsing {relative_path}: {e}")
 
-    # Remove duplicate edges
     unique_edges = [dict(t) for t in {tuple(d.items()) for d in all_edges}]
     print(f"--- ✅ Resolved {len(unique_edges)} total calls. ---")
 
     full_graph = {"nodes": all_nodes, "edges": unique_edges}
     
-    with open(config.CODE_GRAPH_PATH, "w", encoding="utf-8") as f:
+    save_path = config.get_code_graph_path(project_name)
+    with open(save_path, "w", encoding="utf-8") as f:
         json.dump(full_graph, f, indent=2)
     
-    print(f"\n--- 🎉 Code graph saved to {config.CODE_GRAPH_PATH} ---")
+    print(f"\n--- 🎉 Code graph for {project_name} saved to {save_path} ---")
 
 if __name__ == "__main__":
     main()

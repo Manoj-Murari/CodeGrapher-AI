@@ -9,7 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
 from langchain.memory import ConversationBufferMemory
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from dotenv import load_dotenv
 
@@ -19,17 +19,14 @@ from engine.graph import get_graph
 
 load_dotenv()
 
-# This single memory object is shared by the router and the agent
 _memory = ConversationBufferMemory(return_messages=True, input_key="input")
 
 class RouteQuery(BaseModel):
     route: Literal["RAG", "AGENT"] = Field(...)
 
-# Cache for the routing chain
 _routing_chain = None
 
 def get_routing_chain():
-    """Builds and returns the routing chain."""
     global _routing_chain
     if _routing_chain is not None:
         return _routing_chain
@@ -55,10 +52,10 @@ Respond with a JSON object containing a single key 'route' with a value of eithe
     _routing_chain = prompt | llm | output_parser
     return _routing_chain
 
-def run_chain(query: str):
-    """The main entry point for processing a user query."""
+def run_chain(query: str, project_id: str):
+    """The main entry point for processing a user query for a specific project."""
     
-    logging.info(f"--- [CLASSIFY] Query: '{query}' ---")
+    logging.info(f"--- [CLASSIFY] Query: '{query}' for Project: '{project_id}' ---")
     routing_chain = get_routing_chain()
     
     chat_history = _memory.load_memory_variables({}).get("history", [])
@@ -74,7 +71,10 @@ def run_chain(query: str):
         logging.info("--- [AGENT] Invoking Graph... ---")
         graph = get_graph()
         
-        inputs = {"input": query, "chat_history": chat_history}
+        # --- THE CRITICAL FIX IS HERE ---
+        # The project_id must be included in the initial state for the graph
+        inputs = {"input": query, "chat_history": chat_history, "project_id": project_id}
+        
         final_state = None
         for event in graph.stream(inputs):
             if "agent" in event:
@@ -82,7 +82,6 @@ def run_chain(query: str):
                 if outcome and hasattr(outcome, 'log'):
                     thought = f"🤔 {outcome.log.strip()}"
                     yield {"type": "thought", "content": thought}
-
             final_state = event
 
         final_response = final_state["agent"]["agent_outcome"].return_values["output"]
@@ -91,7 +90,8 @@ def run_chain(query: str):
 
     elif route == "RAG":
         logging.info("--- [RAG] Invoking Stream... ---")
-        query_engine = get_query_engine()
+        query_engine = get_query_engine(project_name=project_id)
+        
         full_response = ""
         for chunk in query_engine.query(query):
             yield {"type": "chunk", "content": chunk}

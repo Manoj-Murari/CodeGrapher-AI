@@ -3,9 +3,7 @@
 import os
 import logging
 import google.generativeai as genai
-# --- ADD THIS IMPORT ---
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
-
 import chromadb
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -38,28 +36,32 @@ Answer:
 """
         response_stream = self._llm.generate_content(prompt_template, stream=True)
         
-        # --- FIX 2: Add error handling for empty chunks ---
         for chunk in response_stream:
             try:
                 yield chunk.text
             except ValueError:
-                # This can happen if the API returns an empty chunk (e.g. safety filters)
-                # We'll just skip it and continue to the next chunk.
                 logging.warning("Skipped an empty chunk from the API.")
                 pass
 
-_query_engine = None
+# Cache for query engines, one per project
+_query_engines = {} 
 
-def get_query_engine():
-    global _query_engine
-    if _query_engine is not None:
-        return _query_engine
+def get_query_engine(project_name: str):
+    """Initializes and returns a project-specific RAG query engine."""
+    global _query_engines
+    if project_name in _query_engines:
+        return _query_engines[project_name]
 
-    logging.info("--- [RAG] Initializing custom engine for the first time... ---")
+    logging.info(f"--- [RAG] Initializing custom engine for '{project_name}'... ---")
 
     Settings.embed_model = HuggingFaceEmbedding(model_name=config.EMBEDDING_MODEL_NAME)
+
+    # Use the new config functions to get project-specific paths
+    vector_store_path = config.get_vector_store_path(project_name)
+    collection_name = config.get_collection_name(project_name)
+    
     vector_store = ChromaVectorStore(
-        chroma_collection=chromadb.PersistentClient(path=str(config.VECTOR_STORE_PATH)).get_collection(config.COLLECTION_NAME)
+        chroma_collection=chromadb.PersistentClient(path=str(vector_store_path)).get_collection(collection_name)
     )
     index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
     retriever = index.as_retriever(similarity_top_k=3)
@@ -67,7 +69,6 @@ def get_query_engine():
     api_key = os.environ.get("GOOGLE_API_KEY")
     genai.configure(api_key=api_key)
 
-    # --- FIX 1: Define permissive safety settings ---
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
         HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -77,9 +78,10 @@ def get_query_engine():
 
     llm = genai.GenerativeModel(
         config.AGENT_MODEL_NAME,
-        safety_settings=safety_settings # Apply the settings here
+        safety_settings=safety_settings
     )
 
-    _query_engine = CustomQueryEngine(retriever=retriever, llm=llm)
-    logging.info("--- [RAG] Custom RAG engine initialized successfully! ---")
-    return _query_engine
+    query_engine = CustomQueryEngine(retriever=retriever, llm=llm)
+    _query_engines[project_name] = query_engine # Cache the new engine
+    logging.info(f"--- [RAG] Custom RAG engine for '{project_name}' initialized! ---")
+    return query_engine
