@@ -1,6 +1,5 @@
 # --- engine/chain.py ---
 
-import os
 import logging
 from typing import Literal
 
@@ -9,13 +8,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
 from langchain.memory import ConversationBufferMemory
-from langchain_core.messages import AIMessage, HumanMessage
-
 from dotenv import load_dotenv
 
 import config
+from engine.context import ProjectContext, ProjectNotIndexedError
 from engine.rag import get_query_engine
-from engine.graph import get_graph 
+from engine.agent import create_agent_executor
 
 load_dotenv()
 
@@ -25,14 +23,12 @@ class RouteQuery(BaseModel):
     route: Literal["RAG", "AGENT"] = Field(...)
 
 _routing_chain = None
-
 def get_routing_chain():
     global _routing_chain
     if _routing_chain is not None:
         return _routing_chain
-        
-    llm = ChatGoogleGenerativeAI(model=config.CLASSIFICATION_MODEL_NAME, temperature=0)
     
+    llm = ChatGoogleGenerativeAI(model=config.CLASSIFICATION_MODEL_NAME, temperature=0)
     prompt_template = """
 You are an expert at routing a user's query. Based on the query AND the conversation history, you must decide whether to use a RAG system or a general-purpose Agent.
 
@@ -52,53 +48,60 @@ Respond with a JSON object containing a single key 'route' with a value of eithe
     _routing_chain = prompt | llm | output_parser
     return _routing_chain
 
+
 def run_chain(query: str, project_id: str):
     """The main entry point for processing a user query for a specific project."""
     
+    try:
+        context = ProjectContext(project_id=project_id)
+        logging.info(f"Context validated for project '{context.project_id}'")
+    except ProjectNotIndexedError as e:
+        logging.error(f"Context validation failed: {e}")
+        yield {"type": "error", "content": str(e)}
+        return
+
     logging.info(f"--- [CLASSIFY] Query: '{query}' for Project: '{project_id}' ---")
     routing_chain = get_routing_chain()
-    
     chat_history = _memory.load_memory_variables({}).get("history", [])
     routing_decision = routing_chain.invoke({
         "input": query,
         "chat_history": chat_history
     })
-    
     route = routing_decision.get("route")
     logging.info(f"--- [ROUTE] Chosen: {route} ---")
-    
-    if route == "AGENT":
-        logging.info("--- [AGENT] Invoking Graph... ---")
-        graph = get_graph()
-        
-        # --- THE CRITICAL FIX IS HERE ---
-        # The project_id must be included in the initial state for the graph
-        inputs = {"input": query, "chat_history": chat_history, "project_id": project_id}
-        
-        final_state = None
-        for event in graph.stream(inputs):
-            if "agent" in event:
-                outcome = event["agent"].get("agent_outcome")
-                if outcome and hasattr(outcome, 'log'):
-                    thought = f"🤔 {outcome.log.strip()}"
-                    yield {"type": "thought", "content": thought}
-            final_state = event
 
-        final_response = final_state["agent"]["agent_outcome"].return_values["output"]
+    if route == "AGENT":
+        logging.info("--- [AGENT] Invoking Agent Executor... ---")
+        agent_executor = create_agent_executor(context)
+        inputs = {"input": query, "chat_history": chat_history}
+        
+        final_response = ""
+        for event in agent_executor.stream(inputs):
+            if "logs" in event and event["logs"]:
+                log_str = event["logs"]
+                if "Thought:" in log_str:
+                     thought = f"🤔 {log_str.split('Thought:')[-1].strip()}"
+                     yield {"type": "thought", "content": thought}
+            if "output" in event:
+                final_response = event["output"]
+
         _memory.save_context(inputs, {"output": final_response})
         yield {"type": "chunk", "content": final_response}
 
     elif route == "RAG":
         logging.info("--- [RAG] Invoking Stream... ---")
-        query_engine = get_query_engine(project_name=project_id)
+        query_engine = get_query_engine(context)
         
+        # --- THE FIX ---
+        # 1. Get the StreamingResponse object first
+        response = query_engine.query(query)
+        
+        # 2. Iterate over the .response_gen generator inside the object
         full_response = ""
-        for chunk in query_engine.query(query):
+        for chunk in response.response_gen:
             yield {"type": "chunk", "content": chunk}
             full_response += chunk
         _memory.save_context({"input": query}, {"output": full_response})
 
     else:
         yield {"type": "error", "content": "Error: Could not determine how to handle the query."}
-    
-    yield {"type": "end", "content": ""}

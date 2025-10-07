@@ -1,18 +1,17 @@
 # --- scripts/build_graph.py ---
 
-import os
 import ast
 import json
-import argparse
+from pathlib import Path
+import logging
 
 import config
 
-def get_relative_path(file_path, base_path):
-    """Converts an absolute file path to a project-relative path."""
-    return os.path.relpath(file_path, base_path).replace("\\", "/")
-
-# --- Pass 1: Find all definitions (classes, functions, methods) ---
 class DefinitionVisitor(ast.NodeVisitor):
+    """
+    Pass 1: Visits AST nodes to find all class, function, and method definitions
+    and populates a symbol table.
+    """
     def __init__(self, relative_path, nodes, symbol_table):
         self.relative_path = relative_path
         self.nodes = nodes
@@ -41,114 +40,152 @@ class DefinitionVisitor(ast.NodeVisitor):
         self.symbol_table[func_id] = self.nodes[-1]
         self.generic_visit(node)
 
-# --- Pass 2: Find all calls ---
-class CallVisitor(ast.NodeVisitor):
+class ContextAwareCallVisitor(ast.NodeVisitor):
+    """
+    Pass 2: Visits AST nodes to find all function/method calls, using
+    import context to resolve them intelligently.
+    """
     def __init__(self, relative_path, edges, symbol_table):
         self.relative_path = relative_path
         self.edges = edges
         self.symbol_table = symbol_table
         self.scope_stack = []
+        self.imports = {}
+        self.from_imports = {}
 
-    def get_caller_id(self):
-        return self.scope_stack[-1] if self.scope_stack else None
+    def visit_Import(self, node: ast.Import):
+        for alias in node.names:
+            self.imports[alias.asname or alias.name] = alias.name
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom):
+        module = node.module or ''
+        # Handle relative imports (e.g., 'from . import utils')
+        if node.level > 0:
+            path_parts = self.relative_path.split('/')
+            prefix = '.'.join(path_parts[:-(node.level)])
+            if module:
+                module = f"{prefix}.{module}"
+            else:
+                module = prefix
+
+        for alias in node.names:
+            full_path = f"{module}.{alias.name}".replace('/', '.')
+            self.from_imports[alias.asname or alias.name] = full_path
+        self.generic_visit(node)
+
+    def _get_current_scope_id(self):
+        return '::'.join([self.relative_path] + self.scope_stack) if self.scope_stack else self.relative_path
 
     def visit_ClassDef(self, node):
-        class_id = f"{self.relative_path}::{node.name}"
-        self.scope_stack.append(class_id)
+        self.scope_stack.append(node.name)
         self.generic_visit(node)
         self.scope_stack.pop()
-    
+
     def visit_FunctionDef(self, node):
-        if self.scope_stack and "::" in self.scope_stack[-1]: # Inside a class
-            parent_scope = self.scope_stack[-1]
-            func_id = f"{parent_scope}::{node.name}"
-        else:
-            func_id = f"{self.relative_path}::{node.name}"
-        
-        self.scope_stack.append(func_id)
+        self.scope_stack.append(node.name)
         self.generic_visit(node)
         self.scope_stack.pop()
 
-    def visit_Call(self, node):
-        caller_id = self.get_caller_id()
-        if not caller_id:
-            self.generic_visit(node)
-            return
+    def visit_Call(self, node: ast.Call):
+        caller_id = self._get_current_scope_id()
+        callee_id = None
+        confidence = 0.0
 
-        callee_name = None
+        # Case 1: Direct call, e.g., my_function()
         if isinstance(node.func, ast.Name):
-            callee_name = node.func.id
-        elif isinstance(node.func, ast.Attribute):
-            callee_name = node.func.attr
+            func_name = node.func.id
+            if func_name in self.from_imports:
+                callee_id = self.from_imports[func_name]
+                confidence = 1.0 # High confidence: direct import
+            else:
+                local_target_id = f"{self.relative_path}::{func_name}"
+                if local_target_id in self.symbol_table:
+                    callee_id = local_target_id
+                    confidence = 0.9 # High confidence: local file scope
 
-        if callee_name:
-            # Simple heuristic: find any symbol that ends with the called name.
-            for key in self.symbol_table:
-                if key.endswith(f"::{callee_name}"):
-                    target_id = key
-                    self.edges.append({"source": caller_id, "target": target_id, "type": "CALLS"})
-                    break # Assume first match is correct
+        # Case 2: Attribute call, e.g., obj.method()
+        elif isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+            if isinstance(node.func.value, ast.Name):
+                obj_name = node.func.value.id
+                if obj_name == 'self' and self.scope_stack:
+                    class_scope = self.scope_stack[0]
+                    callee_id = f"{self.relative_path}::{class_scope}::{method_name}"
+                    confidence = 1.0
+                elif obj_name in self.imports:
+                    module_name = self.imports[obj_name]
+                    callee_id = f"{module_name}.{method_name}"
+                    confidence = 0.8
+                elif obj_name in self.from_imports:
+                    module_name = self.from_imports[obj_name]
+                    callee_id = f"{module_name}::{method_name}"
+                    confidence = 0.9
+        
+        # Heuristic Fallback for unresolved attribute calls
+        if not callee_id and isinstance(node.func, ast.Attribute):
+             method_name = node.func.attr
+             for key in self.symbol_table:
+                 if key.endswith(f"::{method_name}"):
+                     callee_id = key
+                     confidence = 0.4 # Low confidence: heuristic guess
+                     break
+
+        if callee_id:
+            self.edges.append({
+                "source": caller_id,
+                "target": callee_id,
+                "type": "CALLS",
+                "confidence": confidence
+            })
         
         self.generic_visit(node)
 
-
-def main():
-    parser = argparse.ArgumentParser(description="Build a code graph for a codebase.")
-    parser.add_argument("--name", required=True, help="A unique name for the project.")
-    parser.add_argument("--path", required=True, help="The path to the project's source code directory.")
-    args = parser.parse_args()
-
-    project_name = args.name
-    project_path = args.path
+def build_code_graph(project_name: str, project_path: Path):
+    """
+    Analyzes a Python codebase in a given path and builds a JSON file
+    representing its call graph, including nodes (functions, methods)
+    and edges (calls between them).
+    """
+    logging.info(f"--- 🚀 Starting Intelligent Code Graph Construction for project: {project_name} ---")
+    all_nodes, all_edges, symbol_table = [], [], {}
     
-    print(f"--- 🚀 Starting Code Graph Construction for project: {project_name} ---")
-    all_nodes = []
-    all_edges = []
-    symbol_table = {}
-    files_to_process = []
+    python_files = list(project_path.rglob("*.py"))
+    logging.info(f"Found {len(python_files)} Python files to process.")
 
-    for root, _, files in os.walk(project_path):
-        if any(skip in root for skip in [".venv", "__pycache__", ".git"]):
-            continue
-        for file in files:
-            if file.endswith(".py"):
-                files_to_process.append(os.path.join(root, file))
-
-    print(f"\n--- Pass 1: Discovering {len(files_to_process)} files... ---")
-    for file_path in files_to_process:
-        relative_path = get_relative_path(file_path, project_path)
+    # Pass 1: Discover all definitions
+    logging.info("--- Pass 1: Discovering definitions... ---")
+    for file_path in python_files:
+        relative_path = file_path.relative_to(project_path).as_posix()
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
+            content = file_path.read_text(encoding="utf-8")
             tree = ast.parse(content)
-            visitor = DefinitionVisitor(relative_path, all_nodes, symbol_table)
-            visitor.visit(tree)
+            DefinitionVisitor(relative_path, all_nodes, symbol_table).visit(tree)
         except Exception as e:
-            print(f"  - ❌ Error parsing {relative_path}: {e}")
-    print(f"--- ✅ Found {len(all_nodes)} total definitions. ---")
+            logging.error(f"  - ❌ Error parsing {relative_path} for definitions: {e}")
 
-    print(f"\n--- Pass 2: Resolving calls... ---")
-    for file_path in files_to_process:
-        relative_path = get_relative_path(file_path, project_path)
+    logging.info(f"--- ✅ Found {len(all_nodes)} total definitions. ---")
+
+    # Pass 2: Discover all calls
+    logging.info("--- Pass 2: Resolving calls with context... ---")
+    for file_path in python_files:
+        relative_path = file_path.relative_to(project_path).as_posix()
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
+            content = file_path.read_text(encoding="utf-8")
             tree = ast.parse(content)
-            visitor = CallVisitor(relative_path, all_edges, symbol_table)
-            visitor.visit(tree)
+            ContextAwareCallVisitor(relative_path, all_edges, symbol_table).visit(tree)
         except Exception as e:
-            print(f"  - ❌ Error parsing {relative_path}: {e}")
+            logging.error(f"  - ❌ Error parsing {relative_path} for calls: {e}")
 
-    unique_edges = [dict(t) for t in {tuple(d.items()) for d in all_edges}]
-    print(f"--- ✅ Resolved {len(unique_edges)} total calls. ---")
+    # Deduplicate edges based on all key-value pairs
+    unique_edges = [dict(t) for t in {tuple(sorted(d.items())) for d in all_edges}]
+    logging.info(f"--- ✅ Resolved {len(unique_edges)} total calls. ---")
 
+    # Save Graph
     full_graph = {"nodes": all_nodes, "edges": unique_edges}
-    
     save_path = config.get_code_graph_path(project_name)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(full_graph, f, indent=2)
     
-    print(f"\n--- 🎉 Code graph for {project_name} saved to {save_path} ---")
-
-if __name__ == "__main__":
-    main()
+    logging.info(f"--- 🎉 Intelligent code graph for {project_name} saved to {save_path} ---")
