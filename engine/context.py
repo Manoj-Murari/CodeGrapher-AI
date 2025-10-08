@@ -1,17 +1,10 @@
 # --- engine/context.py ---
 
-import os
 from pathlib import Path
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field, validator
 
-# Assuming your config.py has these base paths defined
-# We'll need to add get_project_repo_path to it later.
-from config import (
-    VECTOR_STORE_BASE_PATH,
-    CODE_GRAPH_BASE_PATH,
-    TARGET_REPO_PATH # This will be refactored
-)
+import config
 
 class ProjectNotIndexedError(Exception):
     """Custom exception for when a project's assets are not found."""
@@ -26,27 +19,27 @@ class ProjectContext(BaseModel):
 
     @property
     def repo_path(self) -> Path:
-        # For now, we assume a flat structure. This will need a lookup.
-        # TODO: Replace with a dynamic lookup, e.g., config.get_project_repo_path(self.project_id)
-        return TARGET_REPO_PATH / self.project_id
+        # THE FIX: This now points to the new permanent repo location.
+        return config.REPOS_BASE_PATH / self.project_id
 
     @property
     def vector_store_path(self) -> Path:
-        return VECTOR_STORE_BASE_PATH / self.project_id
+        return config.VECTOR_STORE_BASE_PATH / self.project_id
 
     @property
     def code_graph_path(self) -> Path:
-        return CODE_GRAPH_BASE_PATH / f"{self.project_id}_graph.json"
+        return config.CODE_GRAPH_BASE_PATH / f"{self.project_id}_graph.json"
 
     @validator('project_id')
     def validate_project_assets(cls, v):
         """
-        Validates that the necessary data assets for this project exist on disk.
+        Validates that all necessary data assets for this project exist on disk.
         This enforces our 'fail fast' principle.
         """
         project_id = v
-        vector_store_dir = VECTOR_STORE_BASE_PATH / project_id
-        code_graph_file = CODE_GRAPH_BASE_PATH / f"{project_id}_graph.json"
+        vector_store_dir = config.VECTOR_STORE_BASE_PATH / project_id
+        code_graph_file = config.CODE_GRAPH_BASE_PATH / f"{project_id}_graph.json"
+        repo_dir = config.REPOS_BASE_PATH / project_id
 
         if not vector_store_dir.is_dir():
             raise ProjectNotIndexedError(
@@ -55,6 +48,10 @@ class ProjectContext(BaseModel):
         if not code_graph_file.is_file():
             raise ProjectNotIndexedError(
                 f"Project '{project_id}' is not indexed: Code graph not found at {code_graph_file}"
+            )
+        if not repo_dir.is_dir():
+            raise ProjectNotIndexedError(
+                f"Project '{project_id}' source code not found at {repo_dir}. The repository might have been deleted or not cloned correctly."
             )
         return v
 
@@ -65,8 +62,6 @@ class ProjectScopedTool(ABC):
     """
     def __init__(self, context: ProjectContext):
         self.context = context
-        # Optional: Add a logger that includes context by default
-        # self.logger = structlog.get_logger().bind(project_id=self.context.project_id)
 
     @abstractmethod
     def execute(self, **kwargs) -> str:

@@ -8,33 +8,44 @@ build-backend = "setuptools.build_meta"
 name = "codegrapher-ai"
 version = "0.1.0"
 description = "An AI agent for code analysis using RAG and agents."
-requires-python = ">=3.9"
+# --- Python version is correctly constrained ---
+requires-python = ">=3.11, <3.12"
 dependencies = [
+    "chromadb",
+    "Flask",
+    "Flask-Cors",
+    "GitPython",
+    "google-generativeai",
     "langchain",
     "langchain-google-genai",
+    "langgraph",
     "llama-index",
-    "google-generativeai",
     "llama-index-embeddings-huggingface",
+    "llama-index-llms-gemini", 
+    # --- THE FIX: Removed the problematic llama-index-postprocessor-huggingface-rerank ---
     "llama-index-vector-stores-chroma",
-    "llama-index-llms-google-genai",
-    "chromadb",
-    "sentence-transformers",
+    "pydantic",
+    "python-dotenv",
+    "redis",
+    "rq",
+    "sentence-transformers", # This is the only dependency our custom re-ranker needs
     "tree-sitter",
     "tree-sitter-languages",
     "tree_sitter_language_pack",
-    "Flask",
-    "Flask-Cors",
-    "python-dotenv",
-    "pydantic",
-    "langgraph"
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = [
+    "pytest",
+    # pytest-mock will be added by the command below
+]
 
 [tool.setuptools]
 py-modules = ["config", "logging_config"]
-packages = ["engine", "tools"]
+packages = ["engine", "tools", "scripts"]
 
 [tool.pytest.ini_options]
-norecursedirs = [".venv", "target_repo"]
+norecursedirs = [".venv", "target_repo", "data"]
+[tool.poetry.group.dev.dependencies]
+pytest-mock = "^3.15.1"
+
