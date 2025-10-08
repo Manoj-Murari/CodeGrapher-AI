@@ -1,231 +1,265 @@
-<div align="center">
+# CodeGrapher-AI
 
-<br />
+An intelligent code analysis and understanding assistant powered by AI. CodeGrapher-AI combines RAG (Retrieval-Augmented Generation), code graph analysis, and agentic workflows to help you explore, understand, and work with your codebases.
 
-<img src="httpspreviews/logo_placeholder.png" alt="CodeGrapher-AI Logo" width="150">
+## 🌟 Features
 
-<br />
+- **Multi-Project Management**: Index and analyze multiple Git repositories simultaneously
+- **Intelligent Query Routing**: Automatically routes queries between RAG and Agent systems based on context
+- **Code Graph Analysis**: Build and query semantic graphs of your codebase to understand relationships between functions, classes, and modules
+- **Vector-Based Search**: Fast semantic search across your entire codebase using embeddings
+- **AI-Powered Tools**:
+  - 📖 Read and analyze files
+  - 🧪 Generate unit tests automatically
+  - ✅ Run and validate tests
+  - 🔧 Refactor code intelligently
+  - 🐛 Fix bugs with AI assistance
+  - 🔍 Query code structure and dependencies
 
-CodeGrapher-AI
+## 🏗️ Architecture
 
-Go beyond searching. Start a conversation with your code.
+CodeGrapher-AI uses a modern, scalable architecture:
 
-<p>
+- **Backend**: Flask API with Redis Queue for asynchronous job processing
+- **Frontend**: React + TypeScript with Tailwind CSS
+- **AI Models**: Google Gemini 2.5 Flash for reasoning and code generation
+- **Vector Store**: ChromaDB for semantic search
+- **Code Analysis**: AST-based parsing with networkx for graph construction
+- **Agent Framework**: LangChain with custom tools and ReAct prompting
 
-<a href="httpspreviews/demo.gif"><img src="https://img.shields.io/badge/Live-Demo-brightgreen?style=for-the-badge&logo=youtube" alt="Live Demo"></a>
+## 📋 Prerequisites
 
-<a href="#"><img src="https://img.shields.io/github/stars/your-username/CodeGrapher-AI?style=for-the-badge&logo=github&color=FFC107" alt="GitHub stars"></a>
+- Python 3.10 or higher
+- Node.js 18+ and npm
+- Redis server
+- Google AI API key
 
-<a href="#"><img src="https://img.shields.io/github/forks/your-username/CodeGrapher-AI?style=for-the-badge&logo=github&color=blue" alt="GitHub forks"></a>
+## 🚀 Installation
 
-<a href="#"><img src="https://img.shields.io/github/license/your-username/CodeGrapher-AI?style=for-the-badge&color=lightgrey" alt="License"></a>
+### 1. Clone the Repository
 
-</p>
+```bash
+git clone <your-repo-url>
+cd CodeGrapher-AI
+```
 
-</div>
+### 2. Backend Setup
 
-CodeGrapher-AI is an open-source AI assistant that ingests a codebase, analyzes it semantically and structurally, and empowers you to ask complex questions, generate tests, refactor code, and even fix bugs through a simple chat interface.
+```bash
+# Create and activate virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-🎥 Live Demo
+# Install dependencies
+pip install -r requirements.txt
 
-See how CodeGrapher-AI can accelerate your development workflow. From understanding legacy code to fixing bugs with a TDD-powered AI, it's all here.
+# Create .env file with your API key
+echo "GOOGLE_API_KEY=your_api_key_here" > .env
+```
 
-<div align="center">
+### 3. Frontend Setup
 
-<a href="httpspreviews/demo_placeholder.gif">
-
-<img src="httpspreviews/demo_placeholder.gif" alt="CodeGrapher-AI Demo GIF" width="800">
-
-</a>
-
-</div>
-
-✨ Core Features
-
-CodeGrapher-AI isn't just another chatbot. It's an integrated system with a "dual-brain" architecture designed for deep code intelligence.
-
-🧠 Intelligent Query Routing: Automatically analyzes your prompt to decide the best way to answer.
-
-RAG Brain: For semantic questions like "What's the purpose of the user authentication module?"
-
-Agent Brain: For direct actions like "Read the Dockerfile" or "Find all callers of the get_user function."
-
-🔍 Deep Semantic Search: Leverages vector embeddings to find code based on conceptual similarity, not just keywords. Understand the why behind the code, not just the where.
-
-🕸️ Structural Code Graphing: Uses Abstract Syntax Trees (AST) to build a comprehensive map of your codebase. Ask precise questions about function callers, class methods, and dependencies.
-
-🛠️ A Toolbox for Action: The AI Agent is equipped with powerful, secure tools to interact with your code:
-
-File System I/O: Read and list files within the project's secure boundary.
-
-Workspace: A sandboxed environment for the AI to draft changes, create new files, or run tests without touching your source code.
-
-Test Generation: Point it at a function, and it will write pytest unit tests for you.
-
-Automated Refactoring: Ask it to extract a method or simplify a complex function.
-
-TDD-Powered Bug Fixing: Describe a bug, and the AI will first write a failing test to reproduce it, then attempt to generate a fix, and finally re-run the test to confirm the solution.
-
-🏛️ Architecture Overview
-
-Built with scalability and security in mind, the system integrates a modern web stack with a robust, asynchronous AI backend.
-
-<div align="center">
-
-<img src="httpspreviews/architecture_placeholder.png" alt="Architecture Diagram" width="800">
-
-</div>
-
-Frontend: A sleek and responsive React (TypeScript) + Vite application provides the chat interface. Styled with TailwindCSS.
-
-Backend API: A Flask server acts as the central hub, handling user queries and managing background jobs.
-
-Async Workers: Long-running tasks like cloning and indexing repositories are handled by Redis Queue (RQ) workers, ensuring the API remains fast and responsive.
-
-AI Engine: The core of the system, orchestrating LangChain agents and LlamaIndex RAG pipelines with Google's Gemini models.
-
-Data Layer:
-
-ChromaDB serves as the vector store for semantic search.
-
-A custom JSON file stores the structural code graph.
-
-Cloned repositories are stored permanently on disk.
-
-🚀 Getting Started
-
-You can have your own instance of CodeGrapher-AI running in just a few minutes.
-
-Prerequisites
-
-Python 3.11+
-
-Node.js 18+ and npm
-
-Git
-
-Redis Server (running locally or accessible)
-
-A Google AI API Key (get one from Google AI Studio)
-
-1. Clone & Setup
-
-Bash
-
-
-
-# Clone the repository
-
-git clone https://github.com/your-username/CodeGrapher-AI.gitcd CodeGrapher-AI# Set up Python virtual environment and install backend dependencies
-
-python -m venv .venvsource .venv/bin/activate  # On Windows: .\.venv\Scripts\activate
-
-pip install -r requirements.txt# Install the project in editable mode (crucial for imports)
-
-pip install -e .# Install frontend dependenciescd frontend
-
-npm installcd ..
-
-2. Configure Environment
-
-Create a .env file in the project root. This is where you'll put your secret keys.
-
-Code snippet
-
-
-
-# Your Google AI API Key
-
-GOOGLE_API_KEY="your-google-api-key-here"
-
-
-
-# (Optional) Set to True for detailed agent thought processes in the console
-
-AGENT_VERBOSE=True
-
-
-
-# (Optional) URL for your Redis instance
-
-REDIS_URL="redis://localhost:6379"
-
-3. Launch the Application
-
-You need three terminal windows for this.
-
-Terminal 1: Start the Redis Worker
-
-Bash
-
-
-
-source .venv/bin/activate
-
-rq worker
-
-Terminal 2: Start the Flask Backend
-
-Bash
-
-
-
-source .venv/bin/activate
-
-flask run
-
-Terminal 3: Start the React Frontend
-
-Bash
-
-
-
+```bash
 cd frontend
+npm install
+cd ..
+```
 
+### 4. Start Redis
+
+```bash
+# macOS/Linux with Homebrew
+brew services start redis
+
+# Or run directly
+redis-server
+
+# Windows (if installed via WSL or native)
+redis-server
+```
+
+## 🎮 Usage
+
+### Starting the Application
+
+You need three terminal windows:
+
+**Terminal 1 - Backend API:**
+```bash
+source .venv/bin/activate
+python app.py
+```
+
+**Terminal 2 - Worker Process:**
+```bash
+source .venv/bin/activate
+rq worker
+```
+
+**Terminal 3 - Frontend:**
+```bash
+cd frontend
 npm run dev
+```
 
-You can now access the application at http://localhost:5173.
+The application will be available at `http://localhost:5173`
 
-👨‍💻 Usage
+### Adding a Project
 
-Add a Project: Paste any public HTTPS Git URL (ending in .git) into the "Add Project" input and click the button. The RQ worker will pick up the job and begin cloning and indexing.
+1. Open the web interface
+2. Paste a Git repository URL (must end in `.git`) in the header
+3. Click "Add Project"
+4. Wait for indexing to complete (status updates will appear in the UI)
+5. Select the project from the dropdown to start querying
 
-Select a Project: Once indexed, the project will appear in the dropdown. Select it.
+### Example Queries
 
-Start Chatting! Try a few different types of questions:
+- **General Questions**: "What is this project about?"
+- **Code Exploration**: "Explain the `create_app` function in `app.py`"
+- **Finding Dependencies**: "What functions call `set_password`?"
+- **Test Generation**: "Generate unit tests for the `hash_password` function in `models.py`"
+- **Refactoring**: "Extract the password hashing logic into a separate function"
 
-RAG Query: "Explain the purpose of the run_chain function in engine/chain.py."
+## 🛠️ Configuration
 
-Agent (File System): "Read the contents of the pyproject.toml file."
+Key configuration options in `config.py`:
 
-Agent (Code Graph): "Who are the callers of the execute function in the ReadFileTool class?"
+```python
+# Model Configuration
+AGENT_MODEL_NAME = "gemini-2.5-flash"
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
-Agent (Test Generation): "Generate unit tests for the get_project_name_from_url function in worker.py."
+# Paths
+DATA_PATH = ROOT_DIR / "data"
+WORKSPACE_PATH = ROOT_DIR / "workspace"
+```
 
-🤝 Contributing
+## 📁 Project Structure
 
-As a solo developer, I'm building this project in the open and welcome all contributions. Whether it's a bug fix, a new feature, or improving the documentation, your help is appreciated.
+```
+CodeGrapher-AI/
+├── app.py                 # Flask API server
+├── worker.py             # RQ worker for async jobs
+├── config.py             # Configuration and paths
+├── engine/               # Core AI engine
+│   ├── agent.py         # LangChain agent setup
+│   ├── chain.py         # Query routing logic
+│   ├── rag.py           # RAG implementation
+│   └── context.py       # Project context management
+├── tools/                # Agent tools
+│   ├── code_graph.py    # Code graph queries
+│   ├── file_system.py   # File operations
+│   ├── test_generator.py # Test generation
+│   ├── test_runner.py   # Test execution
+│   ├── refactor.py      # Code refactoring
+│   └── bug_fixer.py     # Bug fixing
+├── scripts/             # Indexing scripts
+│   ├── build_index.py   # Vector store builder
+│   └── build_graph.py   # Code graph builder
+├── frontend/            # React frontend
+│   └── src/
+│       ├── components/  # UI components
+│       └── pages/       # Page components
+└── data/                # Generated data (gitignored)
+    ├── repos/           # Cloned repositories
+    ├── vector_stores/   # Vector embeddings
+    └── code_graphs/     # Code graphs
+```
 
-Fork the repository.
+## 🔧 Tools Available to the Agent
 
-Create a new branch (git checkout -b feature/your-awesome-feature).
+1. **ReadFile**: Read file contents from the repository
+2. **ListFiles**: List files in the repository
+3. **QueryCodeGraph**: Query the code structure graph
+4. **CreateFileInWorkspace**: Create new files in the workspace
+5. **UpdateFileInWorkspace**: Modify existing workspace files
+6. **ListWorkspaceFiles**: List files in the workspace
+7. **GenerateTests**: Generate pytest unit tests for functions
+8. **RunTests**: Execute pytest tests and return results
+9. **RefactorCode**: Perform code refactoring operations
+10. **FixBug**: Analyze and fix bugs in code
 
-Make your changes.
+## 🔒 Security Features
 
-Run the tests! (docker build -t codegrapher-tests . && docker run codegrapher-tests)
+- Path traversal protection for all file operations
+- Workspace isolation for generated files
+- Input validation and sanitization
+- Project-scoped contexts prevent cross-project access
 
-Commit your changes (git commit -m 'Add some awesome feature').
+## 🐛 Troubleshooting
 
-Push to the branch (git push origin feature/your-awesome-feature).
+### Redis Connection Issues
+```bash
+# Check if Redis is running
+redis-cli ping
+# Should return: PONG
+```
 
-Open a Pull Request.
+### Import Errors
+```bash
+# Ensure you're in the virtual environment
+which python  # Should point to .venv/bin/python
 
-📜 License
+# Reinstall dependencies
+pip install -r requirements.txt --force-reinstall
+```
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+### Frontend Build Issues
+```bash
+cd frontend
+rm -rf node_modules package-lock.json
+npm install
+```
 
-<div align="center">
+## 📝 Development
 
-<p>Built with passion by a developer, for developers.</p>
+### Running Tests
 
-</div>
+```bash
+# Backend tests
+pytest tests/
+
+# Frontend tests (if configured)
+cd frontend
+npm test
+```
+
+### Code Quality
+
+```bash
+# Python linting
+pylint engine/ tools/
+
+# Frontend linting
+cd frontend
+npm run lint
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## 📄 License
+
+[Your License Here]
+
+## 🙏 Acknowledgments
+
+- Built with [LangChain](https://langchain.com/)
+- Powered by [Google Gemini](https://ai.google.dev/)
+- UI components from [shadcn/ui](https://ui.shadcn.com/)
+- Vector store by [ChromaDB](https://www.trychroma.com/)
+
+## 📧 Support
+
+For issues and questions, please open an issue on GitHub.
+
+---
+
+**Note**: This project requires a valid Google AI API key. Get one at [Google AI Studio](https://makersuite.google.com/app/apikey).
