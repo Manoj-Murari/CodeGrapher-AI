@@ -1,14 +1,13 @@
 import type { Config } from "tailwindcss"
+import tailwindcssAnimate from "tailwindcss-animate"
+import tailwindcssTypography from "@tailwindcss/typography"
 
 export default {
   darkMode: ["class"],
-  // --- THIS IS THE FIX ---
-  // This tells Tailwind to scan all .ts and .tsx files in the src directory
   content: [
     './index.html',
     './src/**/*.{js,ts,jsx,tsx}',
   ],
-  // --- END FIX ---
   prefix: "",
   theme: {
     container: {
@@ -79,5 +78,8 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    tailwindcssAnimate, 
+    tailwindcssTypography
+  ],
 } satisfies Config

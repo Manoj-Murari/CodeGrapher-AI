@@ -31,6 +31,13 @@ export default function WelcomeScreen({ onExampleClick }: WelcomeScreenProps) {
           <p className="mx-auto max-w-2xl px-4 text-base text-muted-foreground md:text-lg">
             Select an indexed project and ask a question to begin.
           </p>
+          <div className="mx-auto mt-2 w-full max-w-xl rounded-lg border bg-surface px-4 py-3 text-left text-sm text-muted-foreground">
+            <ol className="list-decimal pl-5">
+              <li>Pick a project from the header dropdown.</li>
+              <li>Ask a question about files, functions, or tests.</li>
+              <li>Use examples below if you’re not sure where to start.</li>
+            </ol>
+          </div>
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-3 md:mt-12 md:grid-cols-3 md:gap-4">
@@ -38,7 +45,7 @@ export default function WelcomeScreen({ onExampleClick }: WelcomeScreenProps) {
             <button
               key={example.title}
               onClick={() => onExampleClick(example.prompt)}
-              className="group rounded-xl border bg-surface p-4 text-left transition-all hover:border-primary/50 hover:shadow-md md:p-6"
+              className="group rounded-xl border bg-surface p-4 text-left transition-all hover:border-primary/50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring md:p-6"
             >
               <div className="flex items-start gap-3 md:gap-4">
                 <div className="flex-shrink-0 rounded-lg bg-surface-alt p-1.5 transition-colors group-hover:bg-primary/10 md:p-2">

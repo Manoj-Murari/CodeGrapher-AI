@@ -75,28 +75,35 @@ def run_chain(query: str, project_id: str):
         agent_executor = create_agent_executor(context)
         inputs = {"input": query, "chat_history": chat_history}
         
-        final_response = ""
-        for event in agent_executor.stream(inputs):
-            if "logs" in event and event["logs"]:
-                log_str = event["logs"]
+        # --- ROBUST STREAMING FIX ---
+        full_response = ""
+        # The agent stream yields different types of chunks (actions, observations, and finally output)
+        for chunk in agent_executor.stream(inputs):
+            # Intermediate steps (actions) contain the agent's thoughts in their logs
+            if "actions" in chunk:
+                log_str = chunk.get("logs", "")
                 if "Thought:" in log_str:
-                     thought = f"🤔 {log_str.split('Thought:')[-1].strip()}"
-                     yield {"type": "thought", "content": thought}
-            if "output" in event:
-                final_response = event["output"]
+                    thought = f"🤔 {log_str.split('Thought:')[-1].strip()}"
+                    yield {"type": "thought", "content": thought}
+            # The final answer is in a chunk with an 'output' key
+            elif "output" in chunk:
+                full_response = chunk.get("output", "")
+                # Once we get the final answer, we yield it and can stop processing the stream
+                yield {"type": "chunk", "content": full_response}
+                break
 
-        _memory.save_context(inputs, {"output": final_response})
-        yield {"type": "chunk", "content": final_response}
+        if full_response:
+            _memory.save_context(inputs, {"output": full_response})
+        else:
+            yield {"type": "error", "content": "Agent did not produce a final answer."}
+        # --- END OF FIX ---
 
     elif route == "RAG":
         logging.info("--- [RAG] Invoking Stream... ---")
         query_engine = get_query_engine(context)
         
-        # --- THE FIX ---
-        # 1. Get the StreamingResponse object first
         response = query_engine.query(query)
         
-        # 2. Iterate over the .response_gen generator inside the object
         full_response = ""
         for chunk in response.response_gen:
             yield {"type": "chunk", "content": chunk}
