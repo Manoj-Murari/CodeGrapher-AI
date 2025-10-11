@@ -16,9 +16,10 @@ interface ChatWindowProps {
   messages: ChatMessage[];
   onMessagesChange: (messages: ChatMessage[]) => void;
   onFirstUserMessage?: (text: string) => void;
+  sessionId?: string | null;
 }
 
-export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMessagesChange, onFirstUserMessage }: ChatWindowProps) {
+export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMessagesChange, onFirstUserMessage, sessionId }: ChatWindowProps) {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   // --- UPGRADE: State to hold live thoughts for the in-progress response ---
@@ -36,6 +37,12 @@ export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMe
 
   const handleSend = async (inputText: string = input) => {
     if (!inputText.trim() || !selectedProject || isStreaming) return;
+    
+    // Ensure we have a session ID before proceeding
+    if (!sessionId) {
+      console.error('No session ID available, cannot send message');
+      return;
+    }
 
     const userMessage: ChatMessage = { role: "user", content: inputText.trim(), createdAt: Date.now() };
     // Build next messages array synchronously with user + placeholder assistant
@@ -62,12 +69,14 @@ export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMe
     try {
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      console.log('Sending request with session ID:', sessionId);
       const response = await fetch(`${apiBaseUrl}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: inputText.trim(),
           project_id: selectedProject,
+          session_id: sessionId || undefined,
         }),
         signal: controller.signal,
       });

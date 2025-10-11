@@ -31,7 +31,24 @@ export default function Index() {
   const [messagesBySession, setMessagesBySession] = useState<Record<string, ChatMessage[]>>(() => {
     try {
       const raw = localStorage.getItem('cg_session_msgs');
-      return raw ? JSON.parse(raw) : {};
+      const parsed = raw ? JSON.parse(raw) : {};
+      // Clean up any sessions with incomplete loading states
+      const cleaned: Record<string, ChatMessage[]> = {};
+      for (const [sessionId, messages] of Object.entries(parsed)) {
+        if (Array.isArray(messages) && messages.length > 0) {
+          // Remove any incomplete assistant messages (empty content)
+          const cleanedMessages = messages.filter((msg: ChatMessage, index: number) => {
+            if (msg.role === "assistant" && !msg.content && index === messages.length - 1) {
+              return false; // Remove incomplete assistant message
+            }
+            return true;
+          });
+          if (cleanedMessages.length > 0) {
+            cleaned[sessionId] = cleanedMessages;
+          }
+        }
+      }
+      return cleaned;
     } catch { return {}; }
   });
 
@@ -41,6 +58,8 @@ export default function Index() {
     const newSession: Session = { id, title, updatedAt: Date.now(), archived: false };
     setSessions((prev) => [newSession, ...prev]);
     setActiveSessionId(id);
+    // Clear any pending session ref when creating a new session
+    pendingSessionIdRef.current = null;
   };
 
   const handleSelectSession = (id: string) => {
@@ -113,13 +132,27 @@ export default function Index() {
   }, [sessions]);
 
   const ensureSession = (initialTitle?: string): string => {
-    if (activeSessionId) return activeSessionId;
-    if (pendingSessionIdRef.current) return pendingSessionIdRef.current;
+    if (activeSessionId) {
+      console.log('ensureSession: returning existing activeSessionId:', activeSessionId);
+      return activeSessionId;
+    }
+    if (pendingSessionIdRef.current) {
+      console.log('ensureSession: returning pending session ID:', pendingSessionIdRef.current);
+      return pendingSessionIdRef.current;
+    }
+    
     const id = crypto.randomUUID();
+    console.log('ensureSession: creating new session with ID:', id);
     pendingSessionIdRef.current = id;
     const titleBase = initialTitle || (selectedProject ? `Chat - ${selectedProject}` : "New Chat");
     const newSession = { id, title: titleBase, updatedAt: Date.now() };
-    setSessions((prev) => [newSession, ...prev]);
+    
+    // Use functional updates to prevent race conditions
+    setSessions((prev) => {
+      // Check if session already exists to prevent duplicates
+      if (prev.some(s => s.id === id)) return prev;
+      return [newSession, ...prev];
+    });
     setActiveSessionId(id);
     return id;
   };
@@ -131,14 +164,24 @@ export default function Index() {
     }
   }, [activeSessionId]);
 
+  // Ensure we have a session when component mounts
+  useEffect(() => {
+    if (!activeSessionId && sessions.length === 0) {
+      ensureSession();
+    }
+  }, [activeSessionId, sessions.length]);
+
   const setActiveMessages = (msgs: ChatMessage[]) => {
-    const id = ensureSession();
+    // Only ensure session if we don't have an active session
+    const id = activeSessionId || ensureSession();
+    console.log('setActiveMessages called with activeSessionId:', activeSessionId, 'using id:', id);
     setMessagesBySession((prev) => ({ ...prev, [id]: msgs }));
     setSessions((prev) => prev.map(s => s.id === id ? { ...s, updatedAt: Date.now() } : s));
   };
 
   const handleFirstUserMessage = (text: string) => {
-    const id = ensureSession();
+    // Only ensure session if we don't have an active session
+    const id = activeSessionId || ensureSession();
     const firstLine = text.split('\n')[0].trim();
     const title = firstLine.length > 48 ? firstLine.slice(0, 45) + '…' : firstLine;
     setSessions((prev) => prev.map(s => s.id === id ? { ...s, title } : s));
@@ -171,13 +214,14 @@ export default function Index() {
           />
         </aside>
         <main className="flex-1">
-          <ChatWindow
-            selectedProject={selectedProject}
-            apiBaseUrl={API_BASE_URL}
-            messages={activeMessages}
-            onMessagesChange={setActiveMessages}
-            onFirstUserMessage={handleFirstUserMessage}
-          />
+        <ChatWindow
+          selectedProject={selectedProject}
+          apiBaseUrl={API_BASE_URL}
+          messages={activeMessages}
+          onMessagesChange={setActiveMessages}
+          onFirstUserMessage={handleFirstUserMessage}
+          sessionId={activeSessionId}
+        />
         </main>
       </div>
     </div>

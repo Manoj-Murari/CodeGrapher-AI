@@ -2,7 +2,7 @@
 
 import subprocess
 import sys
-import os # <-- Import the os module
+import os
 from pathlib import Path
 
 import config
@@ -28,30 +28,39 @@ class RunTestsTool(ProjectScopedTool):
         if not test_file_path.is_file():
             return f"Error: Test file not found at '{test_file}' in the workspace."
 
-        # --- THE FIX: Configure the environment for the subprocess ---
-        # 1. Copy the current environment to pass it to the subprocess
+        # --- THE FIX: Configure the environment AND working directory for the subprocess ---
+        # 1. Copy the current environment
         env = os.environ.copy()
         
-        # 2. Get the project's root directory from the context
-        project_root_path = str(self.context.repo_path.resolve())
-
-        # 3. Prepend the project's root path to the PYTHONPATH
-        #    This allows the test file to import modules like 'conduit'
-        #    os.pathsep is ';' on Windows and ':' on Linux/macOS
-        env['PYTHONPATH'] = f"{project_root_path}{os.pathsep}{env.get('PYTHONPATH', '')}"
+        # 2. Define project paths. The repo_path is where the source code lives.
+        #    The test is running against a copy in the workspace, but needs to import from the original.
+        project_root = str(self.context.repo_path.resolve())
         
-        # Use the python executable from the current virtual environment to run pytest
+        # 3. Prepend the project's root path to PYTHONPATH.
+        #    This allows the test file to import modules from the project's source tree.
+        pythonpath_parts = [project_root]
+        if 'PYTHONPATH' in env:
+            pythonpath_parts.append(env['PYTHONPATH'])
+        
+        env['PYTHONPATH'] = os.pathsep.join(pythonpath_parts)
+        
+        # 4. Use the python executable from the current virtual environment
         python_executable = sys.executable
-        command = [python_executable, "-m", "pytest", str(test_file_path)]
+        # We run pytest against the test file inside the workspace
+        command = [python_executable, "-m", "pytest", str(test_file_path), "-v"]
 
         try:
+            # 5. Run the subprocess with the correct environment AND working directory
             process = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
                 timeout=120,
-                env=env # <-- Pass the modified environment to the subprocess
+                # CRITICAL: Set the working directory to the source repo.
+                # This makes relative imports like 'from my_package import utils' work.
+                cwd=project_root,
+                env=env # Pass the modified environment
             )
             output = f"--- Test Results for {test_file} ---\n"
             output += f"Exit Code: {process.returncode}\n\n"

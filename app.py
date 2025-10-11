@@ -63,6 +63,7 @@ def query():
     data = request.get_json()
     question = data.get("question")
     project_id = data.get("project_id")
+    session_id = data.get("session_id")
 
     if not question or not project_id:
         logging.error("Missing question or project_id in the request.")
@@ -70,8 +71,15 @@ def query():
         return Response(json.dumps({"error": error_msg}), status=400, mimetype='application/json')
 
     def stream():
+        nonlocal session_id
         try:
-            for event in run_chain(question, project_id):
+            # Use provided session ID or generate a new one if not provided
+            if not session_id:
+                session_id = str(uuid.uuid4())
+                logging.info(f"Generated new session ID: {session_id}")
+            else:
+                logging.info(f"Using provided session ID: {session_id}")
+            for event in run_chain(question, project_id, session_id):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             logging.error(f"An error occurred during stream generation: {e}", exc_info=True)
@@ -215,11 +223,9 @@ def delete_project(project_name):
                 raise PermissionError(f"Failed to delete path: {target_for_delete}")
 
         # Delete repository directory (robust on Windows)
-        repo_deleted = False
         if os.path.exists(project_path):
             try:
                 delete_path_robust(project_path)
-                repo_deleted = True
             except PermissionError:
                 # If directory handles are still open, return 423 Locked with guidance
                 return jsonify({"error": "Project directory is in use. Close any Explorer windows or editors open in this repo and try again."}), 423
@@ -228,35 +234,21 @@ def delete_project(project_name):
         # Delete vector store directory
         # Resolve vector store and code graph paths using config
         vector_store_path = str(config.get_vector_store_path(project_name))
-        # Try to delete vector store; don't fail the request if this part fails
-        try:
-            if os.path.exists(vector_store_path):
-                try:
-                    delete_path_robust(vector_store_path)
-                    logging.info(f"Deleted vector store directory: {vector_store_path}")
-                except PermissionError:
-                    logging.warning("Vector store folder is in use; skipping delete for now.")
-        except Exception as ve:
-            logging.warning(f"Non-fatal error deleting vector store: {ve}")
+        if os.path.exists(vector_store_path):
+            try:
+                delete_path_robust(vector_store_path)
+            except PermissionError:
+                return jsonify({"error": "Vector store folder is in use. Close processes accessing it and try again."}), 423
+            logging.info(f"Deleted vector store directory: {vector_store_path}")
         
         # Delete code graph file
         code_graph_path = str(config.get_code_graph_path(project_name))
-        # Try to delete code graph; don't fail the request if this part fails
-        try:
-            if os.path.exists(code_graph_path):
-                os.remove(code_graph_path)
-                logging.info(f"Deleted code graph file: {code_graph_path}")
-        except Exception as ge:
-            logging.warning(f"Non-fatal error deleting code graph: {ge}")
+        if os.path.exists(code_graph_path):
+            os.remove(code_graph_path)
+            logging.info(f"Deleted code graph file: {code_graph_path}")
         
-        if repo_deleted:
-            logging.info(f"Successfully deleted project: {project_name}")
-            return jsonify({"message": f"Project '{project_name}' deleted successfully."}), 200
-        else:
-            # If repo not found, but attempt to clean other artifacts anyway
-            if not os.path.exists(project_path):
-                return jsonify({"message": f"Project '{project_name}' not found; cleaned up artifacts if present."}), 200
-            return jsonify({"error": "Failed to delete project."}), 500
+        logging.info(f"Successfully deleted project: {project_name}")
+        return jsonify({"message": f"Project '{project_name}' deleted successfully."}), 200
         
     except Exception as e:
         logging.error(f"Error deleting project {project_name}: {e}", exc_info=True)

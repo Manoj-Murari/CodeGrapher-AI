@@ -179,7 +179,7 @@ export default function Header({ onProjectChange, selectedProject, apiBaseUrl }:
             <div className="relative" ref={projectMenuRef}>
               <button
                 type="button"
-                disabled={projects.length === 0}
+                disabled={isJobRunning || projects.length === 0}
                 onClick={() => setIsProjectMenuOpen((v) => !v)}
                 className="min-w-[200px] inline-flex items-center justify-between gap-2 rounded-lg border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
                 title={selectedProject || 'Select a project...'}

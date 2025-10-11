@@ -2,6 +2,7 @@
 
 import logging
 from typing import Literal
+from threading import Lock
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -17,17 +18,51 @@ from engine.agent import create_agent_executor
 
 load_dotenv()
 
-_memory = ConversationBufferMemory(return_messages=True, input_key="input")
+# --- Session-Scoped Memory Manager (from previous fix) ---
+class ConversationMemoryManager:
+    """Thread-safe, session-scoped memory manager with size limits."""
+    
+    def __init__(self, max_messages_per_session: int = 30):
+        self._memories: dict[str, ConversationBufferMemory] = {}
+        self._lock = Lock()
+        self._max_messages = max_messages_per_session
+    
+    def get_memory(self, session_id: str) -> ConversationBufferMemory:
+        """Get or create memory for a specific session."""
+        with self._lock:
+            if session_id not in self._memories:
+                self._memories[session_id] = ConversationBufferMemory(
+                    return_messages=True,
+                    input_key="input"
+                )
+            return self._memories[session_id]
+    
+    def save_context(self, session_id: str, inputs: dict, outputs: dict):
+        """Save to session memory with automatic truncation."""
+        memory = self.get_memory(session_id)
+        memory.save_context(inputs, outputs)
+        
+        messages = memory.load_memory_variables({}).get("history", [])
+        if len(messages) > self._max_messages:
+            memory.chat_memory.messages = messages[-self._max_messages:]
+            
+    def clear_session(self, session_id: str):
+        """Clear memory for a specific session."""
+        with self._lock:
+            if session_id in self._memories:
+                del self._memories[session_id]
+
+_memory_manager = ConversationMemoryManager(max_messages_per_session=30)
 
 class RouteQuery(BaseModel):
     route: Literal["RAG", "AGENT"] = Field(...)
 
 _routing_chain = None
 def get_routing_chain():
+    # ... (this function is unchanged) ...
     global _routing_chain
     if _routing_chain is not None:
         return _routing_chain
-    
     llm = ChatGoogleGenerativeAI(model=config.CLASSIFICATION_MODEL_NAME, temperature=0)
     prompt_template = """
 You are an expert at routing a user's query. Based on the query AND the conversation history, you must decide whether to use a RAG system or a general-purpose Agent.
@@ -49,7 +84,7 @@ Respond with a JSON object containing a single key 'route' with a value of eithe
     return _routing_chain
 
 
-def run_chain(query: str, project_id: str):
+def run_chain(query: str, project_id: str, session_id: str):
     """The main entry point for processing a user query for a specific project."""
     
     try:
@@ -60,9 +95,12 @@ def run_chain(query: str, project_id: str):
         yield {"type": "error", "content": str(e)}
         return
 
-    logging.info(f"--- [CLASSIFY] Query: '{query}' for Project: '{project_id}' ---")
+    logging.info(f"--- [CLASSIFY] Query: '{query}' for Project: '{project_id}' Session: '{session_id}' ---")
+    
+    memory = _memory_manager.get_memory(session_id)
+    chat_history = memory.load_memory_variables({}).get("history", [])
+
     routing_chain = get_routing_chain()
-    chat_history = _memory.load_memory_variables({}).get("history", [])
     routing_decision = routing_chain.invoke({
         "input": query,
         "chat_history": chat_history
@@ -75,40 +113,51 @@ def run_chain(query: str, project_id: str):
         agent_executor = create_agent_executor(context)
         inputs = {"input": query, "chat_history": chat_history}
         
-        # --- ROBUST STREAMING FIX ---
+        # --- ENTIRE STREAMING BLOCK REPLACED WITH CLAUDE'S ROBUST LOGIC ---
         full_response = ""
-        # The agent stream yields different types of chunks (actions, observations, and finally output)
+        # The agent stream yields different types of chunks. We process them all.
         for chunk in agent_executor.stream(inputs):
-            # Intermediate steps (actions) contain the agent's thoughts in their logs
+            # 'actions' contain the agent's thoughts and tool choices
             if "actions" in chunk:
-                log_str = chunk.get("logs", "")
-                if "Thought:" in log_str:
-                    thought = f"🤔 {log_str.split('Thought:')[-1].strip()}"
-                    yield {"type": "thought", "content": thought}
-            # The final answer is in a chunk with an 'output' key
-            elif "output" in chunk:
-                full_response = chunk.get("output", "")
-                # Once we get the final answer, we yield it and can stop processing the stream
-                yield {"type": "chunk", "content": full_response}
-                break
+                for action in chunk["actions"]:
+                    if hasattr(action, 'log') and "Thought:" in action.log:
+                        thought = f"🤔 {action.log.split('Thought:')[-1].strip()}"
+                        yield {"type": "thought", "content": thought}
 
+            # 'steps' contain the results of tool execution
+            elif "steps" in chunk:
+                for step in chunk["steps"]:
+                    action, observation = step
+                    # Truncate observation to keep the thought log clean
+                    obs_preview = str(observation).strip()
+                    if len(obs_preview) > 200:
+                         obs_preview = obs_preview[:200] + "..."
+                    yield {"type": "thought", "content": f"🛠️ **Tool Used:** `{action.tool}`\n**Result:** `{obs_preview}`"}
+            
+            # 'output' contains the final answer, which might arrive in multiple chunks
+            elif "output" in chunk:
+                output_text = chunk.get("output", "")
+                full_response += output_text
+                yield {"type": "chunk", "content": output_text}
+                # CRITICAL FIX: DO NOT BREAK HERE. Let the stream finish naturally.
+
+        # After the stream is complete, save the full context.
         if full_response:
-            _memory.save_context(inputs, {"output": full_response})
+            _memory_manager.save_context(session_id, inputs, {"output": full_response})
         else:
             yield {"type": "error", "content": "Agent did not produce a final answer."}
-        # --- END OF FIX ---
+        # --- END OF REPLACEMENT ---
 
     elif route == "RAG":
+        # ... (RAG logic remains the same) ...
         logging.info("--- [RAG] Invoking Stream... ---")
         query_engine = get_query_engine(context)
-        
         response = query_engine.query(query)
-        
         full_response = ""
         for chunk in response.response_gen:
             yield {"type": "chunk", "content": chunk}
             full_response += chunk
-        _memory.save_context({"input": query}, {"output": full_response})
+        _memory_manager.save_context(session_id, {"input": query}, {"output": full_response})
 
     else:
         yield {"type": "error", "content": "Error: Could not determine how to handle the query."}

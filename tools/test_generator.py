@@ -2,13 +2,14 @@
 
 import ast
 import os
-import json # <-- NEW: Import the json library
 from pathlib import Path
 
 import google.generativeai as genai
 
 import config
 from engine.context import ProjectContext, ProjectScopedTool
+# --- NEW: Import the robust parser ---
+from .utils import parse_tool_input  # pyright: ignore[reportMissingImports]
 
 class GenerateTestsTool(ProjectScopedTool):
     """
@@ -48,25 +49,20 @@ class GenerateTestsTool(ProjectScopedTool):
         """
         Generates pytest unit tests for a specified function and saves them
         to a new file in the /workspace directory.
-        The input is a JSON string containing 'file_path' and 'function_name'.
+        The input is a JSON-like string or dictionary containing 'file_path' and 'function_name'.
         """
         if self.llm is None:
             return "Error: The Generative AI model is not configured. Cannot generate tests."
 
-        # --- THE DEFINITIVE FIX: Parse the incoming JSON string ---
+        # --- REPLACED: Old parsing logic is gone ---
+        # --- NEW: Use the robust parser ---
         try:
-            if isinstance(tool_input, str):
-                args_dict = json.loads(tool_input)
-            else:
-                args_dict = tool_input # It's already a dictionary
-
-            file_path = args_dict.get("file_path")
-            function_name = args_dict.get("function_name")
-            if not file_path or not function_name:
-                return "Error: Input must contain 'file_path' and 'function_name' keys."
-        except (json.JSONDecodeError, AttributeError):
-            return f"Error: Invalid input format. Expected a JSON string with 'file_path' and 'function_name', but received: {tool_input}"
-        # --- END FIX ---
+            args = parse_tool_input(tool_input)
+            file_path = args["file_path"]
+            function_name = args["function_name"]
+        except (ValueError, KeyError) as e:
+            return f"Error: Invalid or unparsable tool input. Details: {e}"
+        # --- END OF REPLACEMENT ---
 
         target_file_path = self.context.repo_path / file_path
         function_source = self._find_function_source(target_file_path, function_name)
@@ -97,7 +93,7 @@ class GenerateTestsTool(ProjectScopedTool):
             return f"Error: Failed to generate test code from the AI model. Details: {e}"
 
         if not generated_test_code.strip():
-             return "Error: The AI model returned an empty response."
+              return "Error: The AI model returned an empty response."
 
         output_filename = f"test_{function_name}.py"
         try:
@@ -111,4 +107,3 @@ class GenerateTestsTool(ProjectScopedTool):
             return f"Success: Test file '{output_filename}' was generated and saved to the workspace."
         except Exception as e:
             return f"Error: Failed to save the generated test file. Details: {e}"
-
