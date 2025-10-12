@@ -2,12 +2,16 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FolderGit2, Plus, Loader2, AlertCircle, CheckCircle2, Trash2 } from "lucide-react";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import JobStatus from "@/components/JobStatus";
 
 // Define the shape of the props this component will receive from its parent (App.tsx)
 interface HeaderProps {
   onProjectChange: (projectId: string) => void;
   selectedProject: string;
   apiBaseUrl: string;
+  projects: string[];
+  onProjectsChange: (projects: string[]) => void;
 }
 
 // Define the shape of the job status object we expect from the API
@@ -16,8 +20,7 @@ interface JobStatus {
   status: "queued" | "processing" | "completed" | "failed";
 }
 
-export default function Header({ onProjectChange, selectedProject, apiBaseUrl }: HeaderProps) {
-  const [projects, setProjects] = useState<string[]>([]);
+export default function Header({ onProjectChange, selectedProject, apiBaseUrl, projects, onProjectsChange }: HeaderProps) {
   const [gitUrl, setGitUrl] = useState("");
   const [isJobRunning, setIsJobRunning] = useState(false);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
@@ -25,36 +28,36 @@ export default function Header({ onProjectChange, selectedProject, apiBaseUrl }:
   // Hovered state not needed with explicit delete button visibility in each row
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [currentProjectName, setCurrentProjectName] = useState<string | null>(null);
 
-  // This function fetches the list of available projects from the backend.
-  const fetchProjects = useCallback(async () => {
+  // Function to refresh projects from the backend
+  const refreshProjects = useCallback(async () => {
     try {
       const response = await fetch(`${apiBaseUrl}/projects`);
       if (!response.ok) throw new Error("Failed to fetch projects");
       const data: string[] = await response.json();
-      console.log('Fetched projects:', data);
-      console.log('Current projects state before update:', projects);
-      setProjects(data);
-      console.log('Projects state updated to:', data);
-
-      // If no project is selected yet, and we have projects, select the first one.
-      if (data.length > 0 && !selectedProject) {
-        onProjectChange(data[0]);
-      }
+      onProjectsChange(data);
     } catch (error) {
       console.error("Error loading projects:", error);
       setStatusMessage("Could not load projects.");
     }
-  }, [apiBaseUrl, selectedProject, onProjectChange]);
+  }, [apiBaseUrl, onProjectsChange]);
 
-  // Function to delete a project
-  const handleDeleteProject = async (projectName: string) => {
-    if (!window.confirm(`Are you sure you want to delete the project "${projectName}"? This will remove all indexed data and cannot be undone.`)) {
-      return;
-    }
+  // Function to initiate project deletion
+  const initiateDeleteProject = (projectName: string) => {
+    setProjectToDelete(projectName);
+    setDeleteDialogOpen(true);
+  };
+
+  // Function to confirm and execute project deletion
+  const confirmDeleteProject = async () => {
+    if (!projectToDelete) return;
 
     try {
-      const response = await fetch(`${apiBaseUrl}/projects/${encodeURIComponent(projectName)}`, {
+      const response = await fetch(`${apiBaseUrl}/projects/${encodeURIComponent(projectToDelete)}`, {
         method: 'DELETE',
       });
       
@@ -63,30 +66,32 @@ export default function Header({ onProjectChange, selectedProject, apiBaseUrl }:
       }
       
       // Optimistically remove from local list for immediate UI feedback
-      setProjects((prev) => prev.filter((p) => p !== projectName));
+      const updatedProjects = projects.filter((p) => p !== projectToDelete);
+      onProjectsChange(updatedProjects);
       
       // If the deleted project was selected, switch to another or clear selection
-      if (selectedProject === projectName) {
-        const remaining = projects.filter((p) => p !== projectName);
-        onProjectChange(remaining[0] || "");
+      if (selectedProject === projectToDelete) {
+        onProjectChange(updatedProjects[0] || "");
       }
       
       // Also refresh from backend to stay in sync
-      await fetchProjects();
+      await refreshProjects();
       
-      setStatusMessage(`Project "${projectName}" deleted successfully.`);
+      setStatusMessage(`Project "${projectToDelete}" deleted successfully.`);
       setTimeout(() => setStatusMessage(""), 3000);
     } catch (error) {
       console.error('Error deleting project:', error);
       setStatusMessage('Failed to delete project.');
       setTimeout(() => setStatusMessage(""), 3000);
+    } finally {
+      setProjectToDelete(null);
     }
   };
 
-  // The `useEffect` hook runs this function once when the component first loads.
+  // Refresh projects when component mounts
   useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+    refreshProjects();
+  }, [refreshProjects]);
 
   // Close custom dropdown on outside click
   useEffect(() => {
@@ -121,7 +126,10 @@ export default function Header({ onProjectChange, selectedProject, apiBaseUrl }:
             // Add a small delay to ensure the backend has fully processed the project
             setTimeout(() => {
               console.log('Project completed, refreshing project list...');
-              fetchProjects(); // Refresh the project list on completion
+              refreshProjects(); // Refresh the project list on completion
+              // Clear job tracking after completion
+              setCurrentJobId(null);
+              setCurrentProjectName(null);
             }, 1000);
           }
           setTimeout(() => {
@@ -158,6 +166,12 @@ export default function Header({ onProjectChange, selectedProject, apiBaseUrl }:
       if (!response.ok) throw new Error("Failed to submit job");
       const data = await response.json();
       setGitUrl("");
+      
+      // Set up job tracking for the new JobStatus component
+      setCurrentJobId(data.job_id);
+      setCurrentProjectName(data.project_name);
+      
+      // Keep the old polling for backward compatibility
       pollJobStatus(data.job_id);
     } catch (error) {
       console.error('Error adding project:', error);
@@ -217,10 +231,8 @@ export default function Header({ onProjectChange, selectedProject, apiBaseUrl }:
                               title={`Delete ${project}`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDeleteProject(project).then(() => {
-                                  // If the list becomes empty or current project removed, close menu
-                                  setIsProjectMenuOpen(false);
-                                });
+                                initiateDeleteProject(project);
+                                setIsProjectMenuOpen(false);
                               }}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -233,7 +245,17 @@ export default function Header({ onProjectChange, selectedProject, apiBaseUrl }:
                 </div>
               )}
             </div>
-            {jobStatus && (
+            {/* New JobStatus component */}
+            {currentJobId && (
+              <JobStatus 
+                jobId={currentJobId} 
+                apiBaseUrl={apiBaseUrl} 
+                projectName={currentProjectName || undefined}
+              />
+            )}
+            
+            {/* Legacy status display for backward compatibility */}
+            {jobStatus && !currentJobId && (
               <div className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-surface-alt px-3 py-1.5 text-sm">
                 {jobStatus.status === "completed" ? (
                   <CheckCircle2 className="h-4 w-4 text-success" />
@@ -267,6 +289,17 @@ export default function Header({ onProjectChange, selectedProject, apiBaseUrl }:
           </button>
         </form>
       </div>
+      
+      <ConfirmationDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Project"
+        description={`Are you sure you want to delete the project "${projectToDelete}"? This will remove all indexed data and cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDeleteProject}
+        variant="destructive"
+      />
     </header>
   );
 }

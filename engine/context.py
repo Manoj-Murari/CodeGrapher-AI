@@ -8,7 +8,16 @@ import config
 
 class ProjectNotIndexedError(Exception):
     """Custom exception for when a project's assets are not found."""
-    pass
+    def __init__(self, message: str, project_id: str = None):
+        super().__init__(message)
+        self.project_id = project_id
+        self.user_friendly_message = self._create_user_friendly_message()
+    
+    def _create_user_friendly_message(self) -> str:
+        """Create a user-friendly error message that can be displayed in the UI."""
+        if self.project_id:
+            return f"Project '{self.project_id}' is not indexed yet. Please add it via the header above to start asking questions about this codebase."
+        return "This project is not indexed yet. Please add it via the header above to start asking questions about this codebase."
 
 class ProjectContext(BaseModel):
     """
@@ -43,15 +52,18 @@ class ProjectContext(BaseModel):
 
         if not vector_store_dir.is_dir():
             raise ProjectNotIndexedError(
-                f"Project '{project_id}' is not indexed: Vector store not found at {vector_store_dir}"
+                f"Project '{project_id}' is not indexed: Vector store not found at {vector_store_dir}",
+                project_id=project_id
             )
         if not code_graph_file.is_file():
             raise ProjectNotIndexedError(
-                f"Project '{project_id}' is not indexed: Code graph not found at {code_graph_file}"
+                f"Project '{project_id}' is not indexed: Code graph not found at {code_graph_file}",
+                project_id=project_id
             )
         if not repo_dir.is_dir():
             raise ProjectNotIndexedError(
-                f"Project '{project_id}' source code not found at {repo_dir}. The repository might have been deleted or not cloned correctly."
+                f"Project '{project_id}' source code not found at {repo_dir}. The repository might have been deleted or not cloned correctly.",
+                project_id=project_id
             )
         return v
 

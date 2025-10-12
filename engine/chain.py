@@ -92,7 +92,7 @@ def run_chain(query: str, project_id: str, session_id: str):
         logging.info(f"Context validated for project '{context.project_id}'")
     except ProjectNotIndexedError as e:
         logging.error(f"Context validation failed: {e}")
-        yield {"type": "error", "content": str(e)}
+        yield {"type": "error", "content": e.user_friendly_message}
         return
 
     logging.info(f"--- [CLASSIFY] Query: '{query}' for Project: '{project_id}' Session: '{session_id}' ---")
@@ -113,7 +113,7 @@ def run_chain(query: str, project_id: str, session_id: str):
         agent_executor = create_agent_executor(context)
         inputs = {"input": query, "chat_history": chat_history}
         
-        # --- ENTIRE STREAMING BLOCK REPLACED WITH CLAUDE'S ROBUST LOGIC ---
+        # --- ENHANCED STREAMING WITH STRUCTURED EVENTS ---
         full_response = ""
         # The agent stream yields different types of chunks. We process them all.
         for chunk in agent_executor.stream(inputs):
@@ -121,8 +121,13 @@ def run_chain(query: str, project_id: str, session_id: str):
             if "actions" in chunk:
                 for action in chunk["actions"]:
                     if hasattr(action, 'log') and "Thought:" in action.log:
-                        thought = f"🤔 {action.log.split('Thought:')[-1].strip()}"
-                        yield {"type": "thought", "content": thought}
+                        thought_content = action.log.split('Thought:')[-1].strip()
+                        yield {
+                            "type": "agent_thought", 
+                            "content": thought_content,
+                            "icon": "🤔",
+                            "label": "Thinking"
+                        }
 
             # 'steps' contain the results of tool execution
             elif "steps" in chunk:
@@ -132,7 +137,34 @@ def run_chain(query: str, project_id: str, session_id: str):
                     obs_preview = str(observation).strip()
                     if len(obs_preview) > 200:
                          obs_preview = obs_preview[:200] + "..."
-                    yield {"type": "thought", "content": f"🛠️ **Tool Used:** `{action.tool}`\n**Result:** `{obs_preview}`"}
+                    # Handle different action object structures
+                    tool_name = "Unknown"
+                    if hasattr(action, 'tool'):
+                        tool_name = action.tool
+                    elif hasattr(action, 'action'):
+                        tool_name = action.action
+                    elif isinstance(action, tuple) and len(action) > 0:
+                        tool_name = str(action[0])
+                    else:
+                        tool_name = str(action)
+                    
+                    # Send tool start event
+                    yield {
+                        "type": "tool_start",
+                        "content": f"Using {tool_name}",
+                        "icon": "🛠️",
+                        "label": "Tool",
+                        "tool_name": tool_name
+                    }
+                    
+                    # Send tool result event
+                    yield {
+                        "type": "tool_result",
+                        "content": obs_preview,
+                        "icon": "✅",
+                        "label": "Result",
+                        "tool_name": tool_name
+                    }
             
             # 'output' contains the final answer, which might arrive in multiple chunks
             elif "output" in chunk:

@@ -7,7 +7,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import redis
-from rq import Worker, Queue
+from rq import Worker, Queue, get_current_job
+from rq.job import Job
 from git import Repo
 
 # Ensure our scripts and config are importable by the worker
@@ -38,8 +39,19 @@ def process_repository(git_url: str):
         # Each job runs in its own process, so we must ensure directories exist here.
         config.setup_directories()
         
+        # Get the current job to update progress
+        current_job = get_current_job()
+        job_id = current_job.id if current_job else None
+        
         project_name = get_project_name_from_url(git_url)
         logging.info(f"Starting processing for '{project_name}' from URL: {git_url}")
+
+        # Update job progress
+        if job_id:
+            job = Job.fetch(job_id, connection=conn)
+            job.meta['status'] = 'cloning'
+            job.meta['message'] = f'Cloning repository {project_name}...'
+            job.save_meta()
 
         # --- THE FIX: Clone to a permanent directory ---
         repo_path = config.REPOS_BASE_PATH / project_name
@@ -54,12 +66,30 @@ def process_repository(git_url: str):
         Repo.clone_from(git_url, repo_path)
         logging.info("Repository cloned successfully.")
         
+        # Update job progress
+        if job_id:
+            job.meta['status'] = 'indexing'
+            job.meta['message'] = f'Building vector store for {project_name}...'
+            job.save_meta()
+        
         # --- Run processing functions on the permanent repo path ---
         logging.info("Building vector store...")
         build_vector_store(project_name, str(repo_path))
         
+        # Update job progress
+        if job_id:
+            job.meta['status'] = 'graphing'
+            job.meta['message'] = f'Building code graph for {project_name}...'
+            job.save_meta()
+        
         logging.info("Building code graph...")
         build_code_graph(project_name, repo_path)
+        
+        # Update job progress
+        if job_id:
+            job.meta['status'] = 'completed'
+            job.meta['message'] = f'Successfully indexed {project_name}'
+            job.save_meta()
         
         logging.info(f"Successfully processed and indexed '{project_name}'.")
 
@@ -67,5 +97,13 @@ def process_repository(git_url: str):
 
     except Exception as e:
         logging.error(f"Failed to process repository {git_url}. Error: {e}", exc_info=True)
+        
+        # Update job progress on error
+        if job_id:
+            job = Job.fetch(job_id, connection=conn)
+            job.meta['status'] = 'failed'
+            job.meta['message'] = f'Failed to process {project_name}: {str(e)}'
+            job.save_meta()
+        
         # Re-raise the exception to mark the job as failed in RQ
         raise

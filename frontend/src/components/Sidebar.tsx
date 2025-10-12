@@ -1,5 +1,8 @@
 import { useMemo, useState, useRef, useEffect } from "react";
 import { Plus, Search, MessageSquare, MoreVertical, Trash2, Archive, ArchiveRestore, Share2, Pencil, ChevronLeft, ChevronRight, Info, Settings } from "lucide-react";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { RenameDialog } from "@/components/ui/rename-dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Message = { role: "user" | "assistant"; content: string; createdAt?: number };
 type Session = { id: string; title: string; updatedAt: number; archived?: boolean };
@@ -32,6 +35,10 @@ export default function Sidebar({ collapsed, onToggleCollapsed, sessions, active
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [sessionToRename, setSessionToRename] = useState<{ id: string; title: string } | null>(null);
 
   const { activeList, archivedList } = useMemo(() => {
     const active = sessions.filter(s => !s.archived);
@@ -75,6 +82,32 @@ export default function Sidebar({ collapsed, onToggleCollapsed, sessions, active
     return titleMatch || messageMatch;
   };
 
+  const handleInitiateDelete = (sessionId: string) => {
+    setSessionToDelete(sessionId);
+    setDeleteDialogOpen(true);
+    setActiveDropdown(null);
+  };
+
+  const handleConfirmDelete = () => {
+    if (sessionToDelete) {
+      onDeleteSession(sessionToDelete);
+      setSessionToDelete(null);
+    }
+  };
+
+  const handleInitiateRename = (sessionId: string, currentTitle: string) => {
+    setSessionToRename({ id: sessionId, title: currentTitle });
+    setRenameDialogOpen(true);
+    setActiveDropdown(null);
+  };
+
+  const handleConfirmRename = (newTitle: string) => {
+    if (sessionToRename) {
+      onRenameSession(sessionToRename.id, newTitle);
+      setSessionToRename(null);
+    }
+  };
+
   const renderRow = (s: Session) => {
     const isActive = s.id === activeSessionId;
     const msgs = messagesBySession[s.id] || [];
@@ -83,14 +116,19 @@ export default function Sidebar({ collapsed, onToggleCollapsed, sessions, active
 
     if (collapsed) {
       return (
-        <button
-          key={s.id}
-          onClick={() => onSelectSession(s.id)}
-          className={`group flex w-full items-center justify-center rounded-md p-2 text-left ${isActive ? "bg-primary/10 text-primary" : "hover:bg-surface-alt"}`}
-          title={s.title}
-        >
-          <MessageSquare className="h-4 w-4" />
-        </button>
+        <Tooltip key={s.id}>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => onSelectSession(s.id)}
+              className={`group flex w-full items-center justify-center rounded-md p-2 text-left ${isActive ? "bg-primary/10 text-primary" : "hover:bg-surface-alt"}`}
+            >
+              <MessageSquare className="h-4 w-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p>{s.title || "Untitled"}</p>
+          </TooltipContent>
+        </Tooltip>
       );
     }
 
@@ -129,11 +167,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, sessions, active
           >
             <button
               className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-alt"
-              onClick={() => {
-                const next = prompt("Rename chat", s.title || "Untitled");
-                if (next && next.trim()) onRenameSession(s.id, next.trim());
-                setActiveDropdown(null);
-              }}
+              onClick={() => handleInitiateRename(s.id, s.title || "Untitled")}
             >
               <Pencil className="h-4 w-4" />
               Rename
@@ -184,12 +218,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, sessions, active
             <div className="my-1 h-px bg-border" />
             <button
               className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                if (window.confirm("Delete this chat? This cannot be undone.")) {
-                  onDeleteSession(s.id);
-                }
-                setActiveDropdown(null);
-              }}
+              onClick={() => handleInitiateDelete(s.id)}
             >
               <Trash2 className="h-4 w-4" />
               Delete
@@ -203,26 +232,38 @@ export default function Sidebar({ collapsed, onToggleCollapsed, sessions, active
   return (
     <div className={`flex h-[calc(100vh-4rem)] ${collapsed ? "w-14" : "w-64"} flex-col border-r bg-surface transition-all duration-300`}>
       <div className={`flex items-center gap-2 p-3 ${collapsed ? "flex-col" : "flex-row"}`}>
-        <button
-          onClick={onNewSession}
-          className={`flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover ${collapsed ? "w-full" : "flex-1"}`}
-          title="New Chat"
-        >
-          <Plus className="h-4 w-4" />
-          {!collapsed && <span>New Chat</span>}
-        </button>
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('Sidebar toggle clicked, collapsed:', collapsed);
-            onToggleCollapsed();
-          }}
-          className="rounded-lg border bg-background p-2 hover:bg-surface-alt"
-          title={collapsed ? "Expand" : "Collapse"}
-        >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onNewSession}
+              className={`flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover ${collapsed ? "w-full" : "flex-1"}`}
+            >
+              <Plus className="h-4 w-4" />
+              {!collapsed && <span>New Chat</span>}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side={collapsed ? "right" : "bottom"}>
+            <p>New Chat</p>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Sidebar toggle clicked, collapsed:', collapsed);
+                onToggleCollapsed();
+              }}
+              className="rounded-lg border bg-background p-2 hover:bg-surface-alt"
+            >
+              {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side={collapsed ? "right" : "bottom"}>
+            <p>{collapsed ? "Expand" : "Collapse"}</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {!collapsed && (
@@ -261,15 +302,21 @@ export default function Sidebar({ collapsed, onToggleCollapsed, sessions, active
 
       {/* Settings Section */}
       <div className="border-t p-3">
-        <button
-          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-surface-alt ${
-            collapsed ? "justify-center" : ""
-          }`}
-          title="Settings"
-        >
-          <Settings className="h-4 w-4 flex-shrink-0" />
-          {!collapsed && <span>Settings</span>}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-surface-alt ${
+                collapsed ? "justify-center" : ""
+              }`}
+            >
+              <Settings className="h-4 w-4 flex-shrink-0" />
+              {!collapsed && <span>Settings</span>}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side={collapsed ? "right" : "top"}>
+            <p>Settings</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Details Modal */}
@@ -312,6 +359,26 @@ export default function Sidebar({ collapsed, onToggleCollapsed, sessions, active
           </div>
         </div>
       )}
+
+      <ConfirmationDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Chat"
+        description="Delete this chat? This cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleConfirmDelete}
+        variant="destructive"
+      />
+
+      <RenameDialog
+        open={renameDialogOpen}
+        onOpenChange={setRenameDialogOpen}
+        title="Rename Chat"
+        currentValue={sessionToRename?.title || ""}
+        onRename={handleConfirmRename}
+        placeholder="Enter chat name"
+      />
     </div>
   );
 }

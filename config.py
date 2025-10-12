@@ -14,8 +14,8 @@ CODE_GRAPH_BASE_PATH = DATA_PATH / "code_graphs"
 REPOS_BASE_PATH = DATA_PATH / "repos"
 
 # --- Model Configuration ---
-AGENT_MODEL_NAME = "gemini-1.5-flash"
-CLASSIFICATION_MODEL_NAME = "gemini-1.5-flash"
+AGENT_MODEL_NAME = "gemini-2.5-flash"
+CLASSIFICATION_MODEL_NAME = "gemini-2.5-flash"
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 # --- Agent Configuration ---

@@ -1,12 +1,21 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Bot, Square } from "lucide-react";
+import { Send, Bot, Square } from "lucide-react";
 import Message from "./Message";
 import WelcomeScreen from "./WelcomeScreen";
+import EmptyState from "./EmptyState";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
-  thoughts?: Array<{ type: string; content: string }>;
+  thoughts?: Array<{ 
+    type: string; 
+    content: string; 
+    icon?: string; 
+    label?: string; 
+    tool_name?: string; 
+  }>;
   createdAt?: number;
 }
 
@@ -17,9 +26,11 @@ interface ChatWindowProps {
   onMessagesChange: (messages: ChatMessage[]) => void;
   onFirstUserMessage?: (text: string) => void;
   sessionId?: string | null;
+  projects: string[];
+  onAddProject: () => void;
 }
 
-export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMessagesChange, onFirstUserMessage, sessionId }: ChatWindowProps) {
+export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMessagesChange, onFirstUserMessage, sessionId, projects, onAddProject }: ChatWindowProps) {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   // --- UPGRADE: State to hold live thoughts for the in-progress response ---
@@ -28,6 +39,7 @@ export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMe
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<ChatMessage[]>(messages);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
@@ -64,7 +76,13 @@ export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMe
     setCurrentThoughts([]);
 
     let assistantMessageContent = "";
-    const thoughts: Array<{ type: string; content: string }> = [];
+    const thoughts: Array<{ 
+      type: string; 
+      content: string; 
+      icon?: string; 
+      label?: string; 
+      tool_name?: string; 
+    }> = [];
 
     try {
       const controller = new AbortController();
@@ -114,8 +132,36 @@ export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMe
             if (parsed.type === "chunk" && parsed.content) {
               assistantMessageContent += parsed.content;
             } else if (parsed.type === "thought" && parsed.content) {
+              // Legacy thought format - keep for backward compatibility
               thoughts.push({ type: parsed.type, content: parsed.content });
               setCurrentThoughts((prev) => [...prev, parsed.content]);
+            } else if (parsed.type === "agent_thought" && parsed.content) {
+              // New structured agent thought
+              const thoughtContent = `${parsed.icon} ${parsed.content}`;
+              thoughts.push({ type: parsed.type, content: thoughtContent, icon: parsed.icon, label: parsed.label });
+              setCurrentThoughts((prev) => [...prev, thoughtContent]);
+            } else if (parsed.type === "tool_start" && parsed.content) {
+              // Tool start event
+              const toolContent = `${parsed.icon} ${parsed.content}`;
+              thoughts.push({ type: parsed.type, content: toolContent, icon: parsed.icon, label: parsed.label, tool_name: parsed.tool_name });
+              setCurrentThoughts((prev) => [...prev, toolContent]);
+            } else if (parsed.type === "tool_result" && parsed.content) {
+              // Tool result event
+              const resultContent = `${parsed.icon} ${parsed.content}`;
+              thoughts.push({ type: parsed.type, content: resultContent, icon: parsed.icon, label: parsed.label, tool_name: parsed.tool_name });
+              setCurrentThoughts((prev) => [...prev, resultContent]);
+            } else if (parsed.type === "error" && parsed.content) {
+              // Handle error events from the backend
+              const errUpdated = [...messagesRef.current];
+              const lastIndex = errUpdated.length - 1;
+              if (lastIndex >= 0 && errUpdated[lastIndex].role === "assistant") {
+                errUpdated[lastIndex] = { ...errUpdated[lastIndex], content: parsed.content };
+              } else {
+                errUpdated.push({ role: "assistant", content: parsed.content, createdAt: Date.now() });
+              }
+              messagesRef.current = errUpdated;
+              onMessagesChange(errUpdated);
+              return; // Exit early on error
             }
 
             const updated = [...messagesRef.current];
@@ -140,9 +186,9 @@ export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMe
       // If there's no assistant placeholder yet, add one; else replace content
       const lastIndex = errUpdated.length - 1;
       if (lastIndex >= 0 && errUpdated[lastIndex].role === "assistant") {
-        errUpdated[lastIndex] = { ...errUpdated[lastIndex], content: "Sorry, I encountered an error. Please check the server logs." };
+        errUpdated[lastIndex] = { ...errUpdated[lastIndex], content: "Something went wrong while processing your request. Please try again or contact support if the issue persists." };
       } else {
-        errUpdated.push({ role: "assistant", content: "Sorry, I encountered an error. Please check the server logs.", createdAt: Date.now() });
+        errUpdated.push({ role: "assistant", content: "Something went wrong while processing your request. Please try again or contact support if the issue persists.", createdAt: Date.now() });
       }
       messagesRef.current = errUpdated;
       onMessagesChange(errUpdated);
@@ -174,13 +220,16 @@ export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMe
   useEffect(() => {
     const onClear = () => {
       if (!messagesRef.current.length) return;
-      if (window.confirm('Clear this conversation? This cannot be undone.')) {
-        onMessagesChange([]);
-      }
+      setClearDialogOpen(true);
     };
     (window as any).__cgClearConversation = onClear;
     return () => { delete (window as any).__cgClearConversation; };
-  }, [onMessagesChange]);
+  }, []);
+
+  const handleConfirmClear = () => {
+    onMessagesChange([]);
+    setClearDialogOpen(false);
+  };
 
   // Keyboard shortcut: Cmd/Ctrl+K to focus input
   useEffect(() => {
@@ -200,42 +249,53 @@ export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMe
     <div className="flex h-[calc(100vh-8.5rem)] flex-col">
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto max-w-4xl">
-          {messages.length === 0 ? (
-            <WelcomeScreen onExampleClick={(prompt) => handleSend(prompt)} />
-          ) : (
+          {projects.length === 0 ? (
+              <EmptyState onAddProject={onAddProject} />
+            ) : messages.length === 0 ? (
+              <WelcomeScreen onExampleClick={(prompt) => handleSend(prompt)} />
+            ) : (
             <div className="px-4">
               {messages.map((msg, idx) => (
                 <Message key={idx} role={msg.role} content={msg.content} thoughts={msg.thoughts} createdAt={msg.createdAt} />
               ))}
 
-              {/* --- UPGRADE: Live "Working on it..." display --- */}
+              {/* --- ENHANCED: Live "Working on it..." display with structured events --- */}
               {isStreaming && currentThoughts.length > 0 && (
                 <div className="flex gap-3 py-6 md:gap-4">
                   <div className="h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center bg-gradient-to-br from-primary to-primary-hover">
                     <Bot className="h-5 w-5 text-primary-foreground" />
                   </div>
                   <div className="flex-1 space-y-2">
-                    <div className="rounded-lg border bg-surface-alt p-3 text-left animate-pulse">
-                      <p className="mb-2 text-sm font-semibold text-foreground">Working on it...</p>
-                      <ul className="space-y-1.5">
-                        {currentThoughts.map((thought, idx) => (
-                          <li key={idx} className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
-                            <span className="whitespace-pre-wrap break-words">
-                              {thought.replace('🤔', '').trim()}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
+                    <div className="rounded-lg border bg-surface-alt p-3 text-left">
+                      <p className="mb-3 text-sm font-semibold text-foreground">Working on it...</p>
+                      <div className="space-y-2">
+                        {currentThoughts.map((thought, idx) => {
+                          // Extract icon and content from the thought string
+                          const iconMatch = thought.match(/^([^\s]+)\s(.+)$/);
+                          const icon = iconMatch ? iconMatch[1] : "🤔";
+                          const content = iconMatch ? iconMatch[2] : thought;
+                          
+                          return (
+                            <div key={idx} className="flex items-start gap-2 text-xs">
+                              <span className="text-base flex-shrink-0 mt-0.5">{icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-muted-foreground whitespace-pre-wrap break-words">
+                                  {content}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>
               )}
-              {/* --- End of Upgrade --- */}
+              {/* --- End of Enhanced Display --- */}
               
               <div ref={messagesEndRef} />
             </div>
-          )}
+            )}
         </div>
       </div>
 
@@ -253,20 +313,38 @@ export default function ChatWindow({ selectedProject, apiBaseUrl, messages, onMe
               className="flex-1 resize-none rounded-2xl border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               style={{ minHeight: "52px", maxHeight: "200px" }}
             />
-            <button
-              onClick={() => (isStreaming ? handleStop() : handleSend())}
-              disabled={!selectedProject || (!input.trim() && !isStreaming)}
-              className="absolute bottom-2 right-2 rounded-lg bg-primary p-2 text-primary-foreground hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isStreaming ? (
-                <Square className="h-5 w-5" />
-              ) : (
-                <Send className="h-5 w-5" />
-              )}
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => (isStreaming ? handleStop() : handleSend())}
+                  disabled={!selectedProject || (!input.trim() && !isStreaming)}
+                  className="absolute bottom-2 right-2 rounded-lg bg-primary p-2 text-primary-foreground hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isStreaming ? (
+                    <Square className="h-5 w-5" />
+                  ) : (
+                    <Send className="h-5 w-5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p>{isStreaming ? "Stop" : "Send"}</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>
+      
+      <ConfirmationDialog
+        open={clearDialogOpen}
+        onOpenChange={setClearDialogOpen}
+        title="Clear Conversation"
+        description="Clear this conversation? This cannot be undone."
+        confirmText="Clear"
+        cancelText="Cancel"
+        onConfirm={handleConfirmClear}
+        variant="destructive"
+      />
     </div>
   );
 }

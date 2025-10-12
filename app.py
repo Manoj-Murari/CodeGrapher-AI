@@ -1,5 +1,3 @@
-# --- app.py ---
-
 import os
 import json
 import time
@@ -83,7 +81,17 @@ def query():
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             logging.error(f"An error occurred during stream generation: {e}", exc_info=True)
-            error_event = { "type": "error", "content": "An unexpected error occurred." }
+            # Provide more specific error messages based on the error type
+            if "ProjectNotIndexedError" in str(type(e)):
+                error_content = "This project is not indexed yet. Please add it via the header above to start asking questions about this codebase."
+            elif "ConnectionError" in str(type(e)) or "TimeoutError" in str(type(e)):
+                error_content = "Unable to connect to the AI service. Please check your internet connection and try again."
+            elif "RateLimitError" in str(type(e)) or "rate limit" in str(e).lower():
+                error_content = "Too many requests. Please wait a moment and try again."
+            else:
+                error_content = "Something went wrong while processing your request. Please try again or contact support if the issue persists."
+            
+            error_event = { "type": "error", "content": error_content }
             yield f"data: {json.dumps(error_event)}\n\n"
         finally:
             yield "data: [DONE]\n\n"
@@ -105,6 +113,7 @@ def add_project():
         return jsonify({"error": "git_url must be provided."}), 400
     
     try:
+        # Create job and enqueue it
         job = q.enqueue(process_repository, git_url)
         project_name = get_project_name_from_url(git_url)
         
@@ -127,10 +136,17 @@ def get_project_status(job_id):
         
         status = job.get_status()
         result = job.result if job.is_finished else str(job.exc_info) if job.is_failed else None
+        
+        # Get detailed progress from job meta
+        meta = job.meta or {}
+        detailed_status = meta.get('status', status)
+        message = meta.get('message', '')
 
         return jsonify({
             "job_id": job.get_id(),
             "status": status,
+            "detailed_status": detailed_status,
+            "message": message,
             "result": result
         }), 200
     except Exception:
@@ -255,5 +271,5 @@ def delete_project(project_name):
         return jsonify({"error": "Failed to delete project."}), 500
 
 if __name__ == "__main__":
-    app.run(debug=False, port=5000)
+    app.run(debug=True, port=5000)
 

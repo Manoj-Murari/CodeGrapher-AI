@@ -92,20 +92,26 @@ export default function Message({ role, content, thoughts, createdAt }: MessageP
 
                     return (
                       <div className="relative mt-3 mb-3">
-                        <button
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(codeContent);
-                              setCopiedCode(true);
-                              setTimeout(() => setCopiedCode(false), 1200);
-                            } catch (_) {}
-                          }}
-                          className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md border bg-surface/80 px-2 py-1 text-xs backdrop-blur hover:bg-surface-alt"
-                          aria-label="Copy code"
-                        >
-                          {copiedCode ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                          <span className="hidden sm:inline">{copiedCode ? 'Copied' : 'Copy'}</span>
-                        </button>
+                        {/* Language header */}
+                        <div className="flex items-center justify-between rounded-t-lg border border-b-0 bg-surface-alt px-3 py-2 text-xs">
+                          <span className="font-medium text-muted-foreground uppercase tracking-wide">
+                            {lang === 'clike' ? 'Code' : lang}
+                          </span>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(codeContent);
+                                setCopiedCode(true);
+                                setTimeout(() => setCopiedCode(false), 1200);
+                              } catch (_) {}
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md border bg-background/80 px-2 py-1 text-xs backdrop-blur hover:bg-surface"
+                            aria-label="Copy code"
+                          >
+                            {copiedCode ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                            <span className="hidden sm:inline">{copiedCode ? 'Copied' : 'Copy'}</span>
+                          </button>
+                        </div>
                         <Editor
                           value={codeContent}
                           onValueChange={() => {}} // Read-only
@@ -116,7 +122,7 @@ export default function Message({ role, content, thoughts, createdAt }: MessageP
                             fontFamily: '"Fira Code", "Fira Mono", monospace',
                             fontSize: 13.5,
                             backgroundColor: '#0b1220',
-                            borderRadius: '8px',
+                            borderRadius: '0 0 8px 8px',
                             // spacing via wrapper margins
                             maxHeight: '600px',
                             overflowY: 'auto',
