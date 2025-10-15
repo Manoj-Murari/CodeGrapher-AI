@@ -39,7 +39,7 @@ CodeGrapher-AI uses a modern, scalable architecture:
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Manoj-Murari/CodeGrapher-AI
 cd CodeGrapher-AI
 ```
 
